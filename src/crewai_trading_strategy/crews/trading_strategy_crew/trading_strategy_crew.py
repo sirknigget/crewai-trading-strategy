@@ -2,6 +2,11 @@ from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from typing import List
+
+from crewai_trading_strategy.tools.execute_analysis_code_tool import ExecuteCodeTool
+from crewai_trading_strategy.tools.get_for_date_range_tool import GetForDateRangeTool
+from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper
+
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
 # https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
@@ -40,7 +45,6 @@ class TradingStrategyCrew():
             config=self.tasks_config['research_strategy_task'], # type: ignore[index]
         )
 
-    @tas
     @crew
     def crew(self) -> Crew:
         """Creates the TradingStrategyCrew crew"""

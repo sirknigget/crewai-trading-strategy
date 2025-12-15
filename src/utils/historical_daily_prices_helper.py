@@ -1,9 +1,9 @@
 import inspect
 from typing import Optional, Union, Any
 from pydantic import BaseModel, Field
-from src.utils.safe_python_code_executor import SafePythonCodeExecutor
 import datetime as dt
 import pandas as pd
+from utils.safe_python_code_executor import SafePythonCodeExecutor
 
 DateLike = Union[str, dt.date, dt.datetime, pd.Timestamp]
 

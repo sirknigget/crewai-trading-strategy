@@ -1,12 +1,9 @@
 #!/usr/bin/env python
 from random import randint
 
+from crewai_trading_strategy.crews.trading_strategy_crew.trading_strategy_crew import TradingStrategyCrew
 from pydantic import BaseModel
-
 from crewai.flow import Flow, listen, start
-
-from crewai_trading_strategy.crews.poem_crew.poem_crew import PoemCrew
-
 
 class TradingStrategyCreationState(BaseModel):
     pass

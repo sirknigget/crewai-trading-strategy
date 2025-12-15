@@ -2,8 +2,7 @@ from typing import Type, Any, List
 from datetime import date
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
-
-from .historical_daily_prices_helper import HistoricalDailyPricesHelper, PriceDataPoint
+from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper, PriceDataPoint
 
 
 class DateRangeQueryInput(BaseModel):
