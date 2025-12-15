@@ -8,59 +8,32 @@ from crewai.flow import Flow, listen, start
 from crewai_trading_strategy.crews.poem_crew.poem_crew import PoemCrew
 
 
-class PoemState(BaseModel):
-    sentence_count: int = 1
-    poem: str = ""
+class TradingStrategyCreationState(BaseModel):
+    pass
 
+inputs: dict = {
+    "coin_symbol": "BTC",
+    "dataset_start_date": "2017-11-10",
+    "dataset_end_date": "2024-01-19",
+}
 
-class PoemFlow(Flow[PoemState]):
+class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
 
     @start()
+    def start_research(self) -> TradingStrategyCreationState:
 
-
-    @listen(generate_sentence_count)
-
-
-    @listen(generate_poem)
-
+        TradingStrategyCrew().crew().kickoff(inputs=inputs)
+        return TradingStrategyCreationState()
 
 
 def kickoff():
-    poem_flow = PoemFlow()
-    poem_flow.kickoff()
+    flow = TradingStrategyCreationFlow()
+    flow.kickoff()
 
 
 def plot():
-    poem_flow = PoemFlow()
-    poem_flow.plot()
-
-
-def run_with_trigger():
-    """
-    Run the flow with trigger payload.
-    """
-    import json
-    import sys
-
-    # Get trigger payload from command line argument
-    if len(sys.argv) < 2:
-        raise Exception("No trigger payload provided. Please provide JSON payload as argument.")
-
-    try:
-        trigger_payload = json.loads(sys.argv[1])
-    except json.JSONDecodeError:
-        raise Exception("Invalid JSON payload provided as argument")
-
-    # Create flow and kickoff with trigger payload
-    # The @start() methods will automatically receive crewai_trigger_payload parameter
-    poem_flow = PoemFlow()
-
-    try:
-        result = poem_flow.kickoff({"crewai_trigger_payload": trigger_payload})
-        return result
-    except Exception as e:
-        raise Exception(f"An error occurred while running the flow with trigger: {e}")
-
+    flow = TradingStrategyCreationFlow()
+    flow.plot()
 
 if __name__ == "__main__":
     kickoff()
