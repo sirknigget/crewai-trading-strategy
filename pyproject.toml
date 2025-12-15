@@ -5,7 +5,10 @@ description = "crewai_trading_strategy using crewAI"
 authors = [{ name = "Your Name", email = "you@example.com" }]
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "crewai[tools]==1.5.0"
+    "crewai[tools]==1.5.0",
+    "pandas>=2.3.3",
+    "pydantic>=2.12.5",
+    "pytest>=9.0.2",
 ]
 
 [project.scripts]

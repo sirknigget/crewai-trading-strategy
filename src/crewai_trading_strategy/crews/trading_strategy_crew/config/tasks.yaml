@@ -1,0 +1,13 @@
+research_strategy_task:
+  description: >
+    Research the historical daily price data for {coin_symbol}, and define a profitable trading strategy that runs daily at midnight (close time).
+    Use the provided tool which allows you to query historical price data over a date range ("YYYY-MM-DD").
+    Valid dates for the dataset are {dataset_start_date} to {dataset_end_date}.
+    Use the provided code execution tool to run any analysis code you need to define the strategy.
+    The code execution tool expects to see a function called run_on_data which receives a pandas DataFrame with the historical price data.
+    The code execution tool will return the output of the function.
+    The code execution tool will block any unsafe imports or code that are not necessary for the analysis.
+  expected_output: >
+    An outline of a profitable trading strategy for {coin_symbol} that runs daily at midnight (close time).
+  agent: strategy_researcher
+  output_file: output/trading_strategy_outline.md
