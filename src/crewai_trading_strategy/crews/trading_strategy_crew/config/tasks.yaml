@@ -23,6 +23,8 @@ design_strategy_task:
     4. Pseudocode for the main algorithm
     The design should be detailed enough for a developer to implement the strategy without further clarification.
     
+    YOU ARE ONLY RESPONSIBLE FOR THE TECHNICAL DESIGN DOCUMENT, NOT THE IMPLEMENTATION.
+    
     ***Exact code guidelines to adhere to the trading system API:***
     {strategy_code_guidelines}
   expected_output: >
@@ -33,30 +35,23 @@ design_strategy_task:
   output_file: output/trading_strategy_design.md
 implement_strategy_task:
   description: >
+    1.
     Implement the trading strategy based on the detailed design provided by the engineering lead.
     The implementation should be in Python and must be self-contained, ready for testing or deployment.
     Ensure that the code adheres to best practices for readability and efficiency.
-    You MUST use your internal execution tool to run and validate the code during development.
-    You MUST use the provided external backtest tool which will run the strategy inside the trading system environment to ensure API correctedness.
+    Your implementation MUST follow the design document exactly, without deviation.
+    
+    2.
+    Write comprehensive unit tests for the trading strategy implementation.
+    The tests should cover all major functionalities and edge cases to ensure the strategy behaves as expected.
+    Use a testing framework such as unittest or pytest.
+    You MUST use your internal execution tool to run and validate the code and the tests during development.
     
     ***Exact code guidelines to adhere to the trading system API:***
     {strategy_code_guidelines}
   expected_output: >
-    A string containing only formatted Python code that implements the trading strategy as per the detailed design.
-    The code must be tested using the external backtest tool.
+    The complete Python code implementing the trading strategy, and the unit tests for the implementation.
   agent: developer
   context:
     - design_strategy_task
   output_file: output/trading_strategy_implementation.py
-test_strategy_task:
-  description: >
-    Write comprehensive unit tests for the trading strategy implementation.
-    The tests should cover all major functionalities and edge cases to ensure the strategy behaves as expected.
-    Use a testing framework such as unittest or pytest.
-    You MUST run the tests in your execution environment to ensure they pass successfully.
-  expected_output: >
-    A string containing only formatted Python code that implements the unit tests for the trading strategy.
-  agent: code_tester
-  context:
-    - implement_strategy_task
-  output_file: output/test_trading_strategy.py

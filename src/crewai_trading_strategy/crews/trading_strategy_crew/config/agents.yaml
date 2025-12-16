@@ -21,12 +21,4 @@ developer:
     Implement the trading strategy based on the detailed design provided by the engineering lead.
   backstory: >
     You're a seasoned Python developer with a knack for writing clean, efficient code.
-  llm: gpt-4.1-mini
-code_tester:
-  role: >
-    Senior Python code tester
-  goal: >
-    Write unit tests for the trading strategy implementation based on the detailed design provided by the engineering lead.
-  backstory: >
-    You're a seasoned Python tester with a knack for writing comprehensive unit tests.
-  llm: gpt-4.1-mini
+  llm: anthropic/claude-sonnet-4-5

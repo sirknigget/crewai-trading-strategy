@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from crewai.flow import Flow, listen, start
 
 from crewai_trading_strategy.strategy_code_guidelines import get_strategy_code_guidelines
+from utils.code_utils import strip_llm_formatting
 from utils.date_utils import parse_yyyy_mm_dd
 from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper
 from utils.json_utils import dump_object
@@ -36,11 +37,8 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
         print("Crew output:\n" + dump_object(crew_output))
 
         implementation_task = next(t for t in crew_output.tasks_output if t.name == "implement_strategy_task")
-        strategy_code = implementation_task.raw
-
-        # Strip away LLM formatting if present around the Python code
-        if "```python" in strategy_code:
-            strategy_code = strategy_code.split("```python")[1].split("```")[0].strip()
+        strategy_code = implementation_task.pydantic.implementation
+        strategy_code = strip_llm_formatting(strategy_code)
 
         self.state.strategy_code = strategy_code
         return self.state
