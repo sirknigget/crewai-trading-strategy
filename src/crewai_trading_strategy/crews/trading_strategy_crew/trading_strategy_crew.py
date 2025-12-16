@@ -5,6 +5,7 @@ from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from typing import List
 
+from crewai_trading_strategy.constants import BTC_DATASET_PATH
 from crewai_trading_strategy.tools.execute_analysis_code_tool import ExecuteCodeTool
 from crewai_trading_strategy.tools.get_for_date_range_tool import GetForDateRangeTool
 from crewai_trading_strategy.tools.run_strategy_backtest_tool import RunStrategyBacktestTool
@@ -16,7 +17,7 @@ from utils.strategy_backtester import StrategyBacktester
 # https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
 
 # Initialize the helper with your CSV
-historicalPriceHelper = HistoricalDailyPricesHelper(csv_path="data/BTC-USD_2014_2024.csv")
+historicalPriceHelper = HistoricalDailyPricesHelper(csv_path=BTC_DATASET_PATH)
 backtester = StrategyBacktester(prices=historicalPriceHelper)
 
 # Create tool instances

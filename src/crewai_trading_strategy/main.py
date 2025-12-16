@@ -31,7 +31,7 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
     @start()
     def start(self) -> TradingStrategyCreationState:
 
-        crew_output = DummyDeveloperCrew().crew().kickoff(inputs=inputs)
+        crew_output = TradingStrategyCrew().crew().kickoff(inputs=inputs)
 
         print("Crew output:\n" + dump_object(crew_output))
 
