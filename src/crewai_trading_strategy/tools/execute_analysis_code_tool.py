@@ -20,16 +20,17 @@ class ExecuteCodeInput(BaseModel):
 
 class ExecuteCodeTool(BaseTool):
     """
-    Tool for executing custom Python analysis code on the cryptocurrency price dataset.
+    Tool for executing custom Python analysis code on the full cryptocurrency price dataset.
     Allows dynamic data analysis with safety restrictions.
+    The dataset contains daily historical prices for the cryptocurrency from 2014 to 2024.
     """
-    name: str = "Execute Custom Analysis Code on BTC Data"
+    name: str = "Execute Custom Analysis Code on Data"
     description: str = (
         "Executes custom Python code to analyze the Bitcoin historical price dataset. "
         "The code must define a function named 'run_on_data(df)' that receives a pandas DataFrame. "
         "Only safe data analysis libraries are allowed (numpy, pandas, math, statistics, datetime, re). "
         "Use this tool to perform calculations, statistical analysis, or custom transformations on the cryptocurrency data. "
-        "Returns the result of the run_on_data function execution."
+        "Returns the result of the run_on_data function execution, which can contain an object with all your analysis results."
     )
     args_schema: Type[BaseModel] = ExecuteCodeInput
 

@@ -1,4 +1,4 @@
-def get_stratregy_code_guidelines() -> str:
+def get_strategy_code_guidelines() -> str:
     return """Write a single self-contained Python code snippet that defines a TOP-LEVEL function named `run` with this exact signature:
 
     def run(df, holdings):

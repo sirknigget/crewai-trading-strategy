@@ -37,8 +37,6 @@ class TradingStrategyCrew():
             config=self.agents_config['strategy_researcher'],
             verbose=True,
             tools=[date_range_tool, execute_code_tool],
-            allow_delegation=True,
-            memory=True,
         )
 
     @agent
@@ -47,8 +45,6 @@ class TradingStrategyCrew():
             config=self.agents_config['engineering_lead'],
             verbose=True,
             tools=[],
-            memory=True,
-            allow_delegation=True,
         )
 
     @agent
@@ -59,8 +55,6 @@ class TradingStrategyCrew():
             tools=[backtest_code_tool],
             allow_code_execution=True,
             code_execution_mode="safe",
-            allow_delegation=True,
-            memory=True,
         )
 
     @agent
@@ -100,25 +94,23 @@ class TradingStrategyCrew():
     def crew(self) -> Crew:
         """Creates the TradingStrategyCrew crew"""
 
-        short_term_memory = ShortTermMemory(
-            storage=RAGStorage(
-                embedder_config={
-                    "provider": "openai",
-                    "config": {
-                        "model_name": 'text-embedding-3-small',
-                        "api_key_env_var": 'OPENAI_API_KEY'
-                    }
-                },
-                type="short_term",
-                path="./memory/"
-            )
-        )
+        # short_term_memory = ShortTermMemory(
+        #     storage=RAGStorage(
+        #         embedder_config={
+        #             "provider": "openai",
+        #             "config": {
+        #                 "model_name": 'text-embedding-3-small',
+        #                 "api_key_env_var": 'OPENAI_API_KEY'
+        #             }
+        #         },
+        #         type="short_term",
+        #         path="./memory/"
+        #     )
+        # )
 
         return Crew(
             agents=self.agents, # Automatically created by the @agent decorator
             tasks=self.tasks, # Automatically created by the @task decorator
             process=Process.sequential,
             verbose=True,
-            memory=True,
-            short_term_memory=short_term_memory,
         )

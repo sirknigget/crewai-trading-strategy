@@ -2,34 +2,38 @@ from typing import Type, Any, List
 from datetime import date
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
+
+from crewai_trading_strategy.constants import BTC_DATASET_START_DATE, BTC_DATASET_END_DATE
 from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper, PriceDataPoint
 
 
 class DateRangeQueryInput(BaseModel):
-    """Input schema for querying BTC price data by date range."""
+    """Input schema for querying BTC price data by date range.
+    The maximum date range is 30 days to limit output size."""
     start_date: str = Field(
         ...,
-        description="Start date in ISO format (YYYY-MM-DD), e.g., '2014-09-18'"
+        description="Start date in ISO format (YYYY-MM-DD), e.g., '2020-09-18'"
     )
     end_date: str = Field(
         ...,
-        description="End date in ISO format (YYYY-MM-DD), e.g., '2014-09-20'"
+        description="End date in ISO format (YYYY-MM-DD), e.g., '2020-09-20'"
     )
 
 
 class GetForDateRangeTool(BaseTool):
     """
-    Tool for retrieving Bitcoin historical daily price data for a specific date range.
+    Tool for retrieving cryptocurrency historical daily price data for a specific date range.
     Returns OHLCV (Open, High, Low, Close, Volume) data points.
-    The maximum date range is 30 days to limit output size.
+    Use this tool for small date ranges (max 30 days) to analyze price movements.
     """
-    name: str = "Get BTC Price Data For Date Range"
-    description: str = (
-        "Retrieves Bitcoin historical daily OHLCV price data for a given date range. "
-        "Use this tool when you need to analyze BTC prices between two specific dates. "
-        "The tool returns a list of price datapoints with Open, High, Low, Close, and Volume. "
-        "Dates must be within the available dataset range (2014-09-18 onwards)."
-    )
+    name: str = "Get Price Data For Date Range"
+    description: str = f"""
+        Retrieves cryptocurrency historical daily OHLCV price data for a given date range.
+        Use this tool when you need to analyze cryptocurrency prices between two specific dates.
+        The tool returns a list of price datapoints with Open, High, Low, Close, and Volume.
+        Dates must be within the available dataset range: {BTC_DATASET_START_DATE} to {BTC_DATASET_END_DATE}.
+        The maximum date range is 30 days to limit output size, which is only suitable for small analyses
+ """
     args_schema: Type[BaseModel] = DateRangeQueryInput
 
     # Instance of the helper class (passed during initialization)
