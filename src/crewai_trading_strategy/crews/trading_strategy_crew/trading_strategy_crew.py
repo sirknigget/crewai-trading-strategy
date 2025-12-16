@@ -42,9 +42,9 @@ class TradingStrategyCrew():
         )
 
     @agent
-    def strategy_designer(self) -> Agent:
+    def engineering_lead(self) -> Agent:
         return Agent(
-            config=self.agents_config['strategy_designer'],
+            config=self.agents_config['engineering_lead'],
             verbose=True,
             tools=[],
             memory=True,
@@ -52,9 +52,9 @@ class TradingStrategyCrew():
         )
 
     @agent
-    def strategy_implementer(self) -> Agent:
+    def developer(self) -> Agent:
         return Agent(
-            config=self.agents_config['strategy_implementer'],
+            config=self.agents_config['developer'],
             verbose=True,
             tools=[backtest_code_tool],
             allow_code_execution=True,
@@ -64,9 +64,9 @@ class TradingStrategyCrew():
         )
 
     @agent
-    def strategy_tester(self) -> Agent:
+    def code_tester(self) -> Agent:
         return Agent(
-            config=self.agents_config['strategy_tester'],
+            config=self.agents_config['code_tester'],
             verbose=True,
             allow_code_execution=True,
             code_execution_mode="safe",
@@ -105,18 +105,20 @@ class TradingStrategyCrew():
                 embedder_config={
                     "provider": "openai",
                     "config": {
-                        "model": 'text-embedding-3-small'
+                        "model_name": 'text-embedding-3-small',
+                        "api_key_env_var": 'OPENAI_API_KEY'
                     }
                 },
                 type="short_term",
                 path="./memory/"
             )
-        ),
+        )
 
         return Crew(
             agents=self.agents, # Automatically created by the @agent decorator
             tasks=self.tasks, # Automatically created by the @task decorator
             process=Process.sequential,
             verbose=True,
+            memory=True,
             short_term_memory=short_term_memory,
         )
