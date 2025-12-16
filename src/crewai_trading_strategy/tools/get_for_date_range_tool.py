@@ -33,10 +33,7 @@ class GetForDateRangeTool(BaseTool):
     args_schema: Type[BaseModel] = DateRangeQueryInput
 
     # Instance of the helper class (passed during initialization)
-    helper: HistoricalDailyPricesHelper = Field(
-        ...,
-        description="HistoricalDailyPricesHelper instance with loaded BTC data"
-    )
+    helper: HistoricalDailyPricesHelper
 
     def gap_in_days(self, start_date: str, end_date: str) -> int:
         start = date.fromisoformat(start_date)

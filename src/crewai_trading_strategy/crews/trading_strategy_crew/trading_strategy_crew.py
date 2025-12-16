@@ -1,22 +1,28 @@
 from crewai import Agent, Crew, Process, Task
+from crewai.memory import ShortTermMemory
+from crewai.memory.storage.rag_storage import RAGStorage
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from typing import List
 
 from crewai_trading_strategy.tools.execute_analysis_code_tool import ExecuteCodeTool
 from crewai_trading_strategy.tools.get_for_date_range_tool import GetForDateRangeTool
+from crewai_trading_strategy.tools.run_strategy_backtest_tool import RunStrategyBacktestTool
 from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper
+from utils.strategy_backtester import StrategyBacktester
 
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
 # https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
 
 # Initialize the helper with your CSV
-helper = HistoricalDailyPricesHelper(csv_path="data/BTC-USD_2014_2024.csv")
+historicalPriceHelper = HistoricalDailyPricesHelper(csv_path="data/BTC-USD_2014_2024.csv")
+backtester = StrategyBacktester(prices=historicalPriceHelper)
 
 # Create tool instances
-date_range_tool = GetForDateRangeTool(helper=helper)
-execute_code_tool = ExecuteCodeTool(helper=helper)
+date_range_tool = GetForDateRangeTool(helper=historicalPriceHelper)
+execute_code_tool = ExecuteCodeTool(helper=historicalPriceHelper)
+backtest_code_tool = RunStrategyBacktestTool(backtester=backtester)
 
 @CrewBase
 class TradingStrategyCrew():
@@ -25,33 +31,92 @@ class TradingStrategyCrew():
     agents: List[BaseAgent]
     tasks: List[Task]
 
-    # Learn more about YAML configuration files here:
-    # Agents: https://docs.crewai.com/concepts/agents#yaml-configuration-recommended
-    # Tasks: https://docs.crewai.com/concepts/tasks#yaml-configuration-recommended
-    
-    # If you would like to add tools to your agents, you can learn more about it here:
-    # https://docs.crewai.com/concepts/agents#agent-tools
     @agent
     def strategy_researcher(self) -> Agent:
         return Agent(
             config=self.agents_config['strategy_researcher'],
             verbose=True,
-            tools=[date_range_tool, execute_code_tool]
+            tools=[date_range_tool, execute_code_tool],
+            allow_delegation=True,
+            memory=True,
+        )
+
+    @agent
+    def strategy_designer(self) -> Agent:
+        return Agent(
+            config=self.agents_config['strategy_designer'],
+            verbose=True,
+            tools=[],
+            memory=True,
+            allow_delegation=True,
+        )
+
+    @agent
+    def strategy_implementer(self) -> Agent:
+        return Agent(
+            config=self.agents_config['strategy_implementer'],
+            verbose=True,
+            tools=[backtest_code_tool],
+            allow_code_execution=True,
+            code_execution_mode="safe",
+            allow_delegation=True,
+            memory=True,
+        )
+
+    @agent
+    def strategy_tester(self) -> Agent:
+        return Agent(
+            config=self.agents_config['strategy_tester'],
+            verbose=True,
+            allow_code_execution=True,
+            code_execution_mode="safe",
         )
 
     @task
     def research_strategy_task(self) -> Task:
         return Task(
-            config=self.tasks_config['research_strategy_task'], # type: ignore[index]
+            config=self.tasks_config['research_strategy_task'],
+        )
+
+    @task
+    def design_strategy_task(self) -> Task:
+        return Task(
+            config=self.tasks_config['design_strategy_task'],
+        )
+
+    @task
+    def implement_strategy_task(self) -> Task:
+        return Task(
+            config=self.tasks_config['implement_strategy_task'],
+        )
+
+    @task
+    def test_strategy_task(self) -> Task:
+        return Task(
+            config=self.tasks_config['test_strategy_task'],
         )
 
     @crew
     def crew(self) -> Crew:
         """Creates the TradingStrategyCrew crew"""
 
+        short_term_memory = ShortTermMemory(
+            storage=RAGStorage(
+                embedder_config={
+                    "provider": "openai",
+                    "config": {
+                        "model": 'text-embedding-3-small'
+                    }
+                },
+                type="short_term",
+                path="./memory/"
+            )
+        ),
+
         return Crew(
             agents=self.agents, # Automatically created by the @agent decorator
             tasks=self.tasks, # Automatically created by the @task decorator
             process=Process.sequential,
             verbose=True,
+            short_term_memory=short_term_memory,
         )

@@ -1,13 +1,61 @@
 research_strategy_task:
   description: >
     Research the historical daily price data for {coin_symbol}, and define a profitable trading strategy that runs daily at midnight (close time).
-    Use the provided tool which allows you to query historical price data over a date range ("YYYY-MM-DD").
-    Valid dates for the dataset are {dataset_start_date} to {dataset_end_date}.
-    Use the provided code execution tool to run any analysis code you need to define the strategy.
-    The code execution tool expects to see a function called run_on_data which receives a pandas DataFrame with the historical price data.
-    The code execution tool will return the output of the function.
-    The code execution tool will block any unsafe imports or code that are not necessary for the analysis.
+    You may use the provided tools which allows you to query and analyze historical price data for {coin_symbol}.
+    The dataset contains data for the dates {dataset_start_date} to {dataset_end_date}.
   expected_output: >
     An outline of a profitable trading strategy for {coin_symbol} that runs daily at midnight (close time).
+    The strategy must be possible to implement using only the historical daily price data provided at execution.
+    The strategy can use common technical indicators derived from the daily price data (e.g., moving averages, RSI, MACD, etc.).
+    The strategy can perform multiple buy and sell actions with stop/profit conditions.
+    The strategy can examine current holdings to decide on buy/sell actions.
   agent: strategy_researcher
   output_file: output/trading_strategy_outline.md
+design_strategy_task:
+  description: >
+    Based on the trading strategy outline provided, create a detailed design for implementing the trading strategy as code.
+    The design should include:
+    1. A clear description of the strategy logic
+    2. Function and method signatures
+    3. Any necessary data structures
+    4. Pseudocode for the main algorithm
+    The design should be detailed enough for a developer to implement the strategy without further clarification.
+    Ask the agent strategy_researcher for any clarifications needed about the strategy outline before creating the design.
+    
+    ***Exact code guidelines to adhere to the trading system API:***
+    {strategy_code_guidelines}
+  expected_output: >
+    A detailed design document for implementing the trading strategy as code.
+  agent: engineering_lead
+  context:
+    - research_strategy_task
+  output_file: output/trading_strategy_design.md
+implement_strategy_task:
+  description: >
+    Implement the trading strategy based on the detailed design provided by the engineering lead.
+    The implementation should be in Python and must be self-contained, ready for testing or deployment.
+    Ensure that the code adheres to best practices for readability and efficiency.
+    Use your internal execution tool to run and validate the code during development.
+    Use the provided external backtest tool which will run the strategy inside the trading system environment to ensure API correctedness.
+    Ask the agent engineering_lead for any clarifications needed about the design before starting implementation.
+    
+    ***Exact code guidelines to adhere to the trading system API:***
+    {strategy_code_guidelines}
+  expected_output: >
+    A string containing only formatted Python code that implements the trading strategy as per the detailed design.
+  agent: developer
+  context:
+    - design_strategy_task
+  output_file: output/trading_strategy_implementation.py
+test_strategy_task:
+  description: >
+    Write comprehensive unit tests for the trading strategy implementation.
+    The tests should cover all major functionalities and edge cases to ensure the strategy behaves as expected.
+    Use a testing framework such as unittest or pytest.
+    Run the tests in your execution environment to ensure they pass successfully.
+  expected_output: >
+    A string containing only formatted Python code that implements the unit tests for the trading strategy.
+  agent: code_tester
+  context:
+    - implement_strategy_task
+  output_file: output/test_trading_strategy.py
