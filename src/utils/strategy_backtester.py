@@ -3,32 +3,30 @@ from __future__ import annotations
 
 import inspect
 import traceback
-from dataclasses import dataclass
 from typing import Any, Optional, Literal, Union, Annotated
-
 import pandas as pd
-from pydantic import BaseModel, Field
-
-from historical_daily_prices_helper import HistoricalDailyPricesHelper
+from pydantic import BaseModel, Field, TypeAdapter
+from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper
 from utils.safe_python_code_executor import SafePythonCodeExecutor
-
 
 Asset = Literal["USD", "BTC"]
 
 
+# --- Pydantic types ---
+
 class HoldingState(BaseModel):
     holding_id: str
     asset: Asset
-    amount: float  # asset units (USD or BTC)
-    stop_loss: Optional[float] = None     # threshold unit price in USD (e.g., BTC price)
-    take_profit: Optional[float] = None   # threshold unit price in USD (e.g., BTC price)
+    amount: float  # asset units
+    stop_loss: Optional[float] = None     # unit price in USD
+    take_profit: Optional[float] = None   # unit price in USD
 
 
 class HoldingSnapshot(BaseModel):
     holding_id: str
     asset: Asset
     amount: float
-    unit_value_usd: float  # USD=1, BTC=price
+    unit_value_usd: float  # USD=1, BTC=last known price (for strategy) / close (for final valuation)
     total_value_usd: float
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
@@ -36,19 +34,20 @@ class HoldingSnapshot(BaseModel):
 
 class BuyOrder(BaseModel):
     action: Literal["BUY"]
-    asset: Literal["BTC"]  # currently only BTC supported for buys
-    amount: float          # asset units to buy (BTC)
-    stop_loss: Optional[float] = None     # threshold unit price in USD
-    take_profit: Optional[float] = None   # threshold unit price in USD
+    asset: Literal["BTC"]
+    amount: float
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
 
 
 class SellOrder(BaseModel):
     action: Literal["SELL"]
     holding_id: str
-    amount: float  # asset units to sell (e.g., BTC units from that holding)
+    amount: float
 
 
 Order = Annotated[Union[BuyOrder, SellOrder], Field(discriminator="action")]
+OrdersAdapter = TypeAdapter(list[Order])
 
 
 class BacktestResult(BaseModel):
@@ -58,10 +57,7 @@ class BacktestResult(BaseModel):
 
 
 class StrategyBacktester:
-    # Initial portfolio in USD:
     INITIAL_PORTFOLIO_USD: float = 10_000.0
-
-    # Internal constant for the USD holding id:
     USD_HOLDING_ID: str = "USD"
 
     def __init__(
@@ -70,11 +66,12 @@ class StrategyBacktester:
         executor: Optional[SafePythonCodeExecutor] = None,
     ):
         self.prices = prices
-        # Prefer an explicitly provided executor; otherwise reuse helper’s.
         self._executor = executor or getattr(prices, "_executor", None) or SafePythonCodeExecutor()
 
         self._holdings: list[HoldingState] = []
         self._next_id = 1
+
+    # -------- Portfolio bookkeeping --------
 
     def _reset_portfolio(self) -> None:
         self._holdings = [
@@ -82,8 +79,6 @@ class StrategyBacktester:
                 holding_id=self.USD_HOLDING_ID,
                 asset="USD",
                 amount=float(self.INITIAL_PORTFOLIO_USD),
-                stop_loss=None,
-                take_profit=None,
             )
         ]
         self._next_id = 1
@@ -97,19 +92,42 @@ class StrategyBacktester:
         for h in self._holdings:
             if h.asset == "USD":
                 return h
-        # Should never happen due to reset logic:
         raise RuntimeError("USD holding missing from portfolio state.")
 
-    def _btc_unit_price_from_row(self, row: pd.Series) -> float:
-        # Use Close for valuation and strategy execution.
+    def _find_holding(self, holding_id: str) -> Optional[HoldingState]:
+        for h in self._holdings:
+            if h.holding_id == holding_id:
+                return h
+        return None
+
+    # -------- Pricing helpers --------
+
+    @staticmethod
+    def _row_open(row: pd.Series) -> float:
+        return float(row["Open"])
+
+    @staticmethod
+    def _row_high(row: pd.Series) -> float:
+        return float(row["High"])
+
+    @staticmethod
+    def _row_low(row: pd.Series) -> float:
+        return float(row["Low"])
+
+    @staticmethod
+    def _row_close(row: pd.Series) -> float:
         return float(row["Close"])
 
-    def _snapshot_holdings(self, price_row: pd.Series) -> list[HoldingSnapshot]:
-        btc_price = self._btc_unit_price_from_row(price_row)
+    @staticmethod
+    def _last_known_close(day_df: pd.DataFrame) -> float:
+        # With warm-up validation, day_df must be non-empty.
+        return float(day_df["Close"].iloc[-1])
+
+    def _snapshot_holdings_with_price(self, btc_price: float) -> list[HoldingSnapshot]:
         out: list[HoldingSnapshot] = []
         for h in self._holdings:
-            unit = 1.0 if h.asset == "USD" else btc_price
-            total = float(h.amount) * float(unit)
+            unit = 1.0 if h.asset == "USD" else float(btc_price)
+            total = float(h.amount) * unit
             out.append(
                 HoldingSnapshot(
                     holding_id=h.holding_id,
@@ -123,9 +141,11 @@ class StrategyBacktester:
             )
         return out
 
-    def _snapshot_payload_for_strategy(self, price_row: pd.Series) -> list[dict[str, Any]]:
-        # Strategy gets plain dicts (sandbox-friendly).
-        return [s.model_dump() for s in self._snapshot_holdings(price_row)]
+    def _strategy_holdings_payload(self, last_known_btc_price: float) -> list[dict[str, Any]]:
+        # Strategy sees holdings valued at last known close (no look-ahead).
+        return [s.model_dump() for s in self._snapshot_holdings_with_price(last_known_btc_price)]
+
+    # -------- Strategy code loading --------
 
     def _compile_and_get_run(self, code: str):
         compiled = self._executor.check_and_compile(code)
@@ -148,6 +168,8 @@ class StrategyBacktester:
                 raise ValueError("run(df, holdings) must take both arguments positionally.")
 
         return runner
+
+    # -------- Order application --------
 
     def _apply_buy(self, order: BuyOrder, execution_price: float) -> None:
         if order.amount <= 0:
@@ -175,19 +197,12 @@ class StrategyBacktester:
     def _apply_sell(self, order: SellOrder, execution_price: float) -> None:
         if order.amount <= 0:
             raise ValueError("SELL amount must be > 0.")
-
         if order.holding_id == self.USD_HOLDING_ID:
-            raise ValueError("Cannot SELL the USD holding via SELL order (only BTC holdings are sellable).")
+            raise ValueError("Cannot SELL the USD holding via SELL order.")
 
-        target: Optional[HoldingState] = None
-        for h in self._holdings:
-            if h.holding_id == order.holding_id:
-                target = h
-                break
-
+        target = self._find_holding(order.holding_id)
         if target is None:
             raise ValueError(f"SELL refers to non-existing holding_id={order.holding_id!r}.")
-
         if target.asset != "BTC":
             raise ValueError(f"SELL holding must be BTC; got {target.asset!r}.")
 
@@ -202,7 +217,6 @@ class StrategyBacktester:
         usd = self._get_usd_holding()
         usd.amount += proceeds
 
-        # Remove empty BTC holdings:
         if target.amount <= 1e-12:
             self._holdings = [h for h in self._holdings if h.holding_id != target.holding_id]
 
@@ -215,36 +229,32 @@ class StrategyBacktester:
             else:
                 raise ValueError(f"Unsupported order type: {type(o)}")
 
+    # -------- Stop loss / take profit --------
+
     def _auto_close_on_thresholds(self, day_row: pd.Series) -> None:
         """
-        Enforce stop_loss / take_profit using intraday bounds:
-        - stop_loss triggers if Low <= stop_loss (sell at stop_loss)
-        - take_profit triggers if High >= take_profit (sell at take_profit)
-        If both could trigger, stop_loss is applied first (conservative).
+        Intraday enforcement (after orders executed at Open):
+        - stop_loss triggers if Low <= stop_loss  -> sell full at stop_loss price
+        - take_profit triggers if High >= take_profit -> sell full at take_profit price
+        If both could trigger same day, stop_loss is applied first.
         """
-        low = float(day_row["Low"])
-        high = float(day_row["High"])
+        low = self._row_low(day_row)
+        high = self._row_high(day_row)
 
-        # Make a stable list of BTC holdings to evaluate (since selling mutates self._holdings):
-        btc_holdings = [h for h in self._holdings if h.asset == "BTC"]
+        btc_holdings = [h for h in self._holdings if h.asset == "BTC" and h.amount > 1e-12]
 
         for h in btc_holdings:
-            # Holding might have been removed by earlier trigger:
-            still_present = any(x.holding_id == h.holding_id for x in self._holdings)
-            if not still_present:
+            if self._find_holding(h.holding_id) is None:
                 continue
 
             if h.stop_loss is not None and low <= float(h.stop_loss):
-                # Sell full amount at stop_loss price:
                 self._apply_sell(
                     SellOrder(action="SELL", holding_id=h.holding_id, amount=float(h.amount)),
                     execution_price=float(h.stop_loss),
                 )
                 continue
 
-            # Re-check presence after potential mutation:
-            still_present = any(x.holding_id == h.holding_id for x in self._holdings)
-            if not still_present:
+            if self._find_holding(h.holding_id) is None:
                 continue
 
             if h.take_profit is not None and high >= float(h.take_profit):
@@ -253,24 +263,32 @@ class StrategyBacktester:
                     execution_price=float(h.take_profit),
                 )
 
+    # -------- Main backtest --------
+
     def test_strategy(self, start_date, end_date, trading_strategy_code: str) -> BacktestResult | str:
         """
-        Runs a daily backtest over actual dataset trading dates from start_date to end_date inclusive.
+        For each trading day D in [start..end]:
+          - Strategy input df = prices up to (D - 1 day) inclusive (no look-ahead)
+          - Orders execute at D Open
+          - stop_loss/take_profit may trigger using D Low/High (after orders)
 
-        Strategy execution (per trading day):
-        1) Apply stop_loss / take_profit auto-sells using Low/High thresholds.
-        2) Provide df subset up to current day and current holdings snapshot to run(df, holdings).
-        3) Execute returned orders in-order at Close price for that day.
-
-        Returns:
-          - BacktestResult on success
-          - error string (with stack trace) on any code execution error
-          - descriptive error string on any order/validation error
+        Warm-up requirement:
+          - start_date must have at least one prior candle available to the strategy.
         """
         try:
             dates = self.prices.get_trading_dates(start_date, end_date)
         except Exception as e:
             return f"Date range validation error: {e}"
+
+        # Warm-up validation: the first execution day must have at least 1 prior candle
+        first_day = pd.Timestamp(dates[0]).normalize()
+        as_of_first = first_day - pd.Timedelta(days=1)
+        warmup_df = self.prices.get_df_until_date(as_of_first)
+        if warmup_df.empty:
+            return (
+                "Date range validation error: start_date requires at least 1 prior candle "
+                "(warm-up). Choose a later start_date."
+            )
 
         self._reset_portfolio()
 
@@ -281,51 +299,60 @@ class StrategyBacktester:
 
         try:
             for day in dates:
-                day_df = self.prices.get_df_until_date(day)
-                day_row = self.prices.df.loc[day]  # exists since day is a trading date
-                close_price = self._btc_unit_price_from_row(day_row)
+                day = pd.Timestamp(day).normalize()
 
-                # 1) Apply stop/take triggers before strategy runs.
-                self._auto_close_on_thresholds(day_row)
+                # No look-ahead: only past data visible
+                as_of = day - pd.Timedelta(days=1)
+                day_df = self.prices.get_df_until_date(as_of)
+                if day_df.empty:
+                    return (
+                        f"Date range validation error: not enough history before {day.date()} "
+                        "(warm-up)."
+                    )
 
-                # 2) Run strategy
-                holdings_payload = self._snapshot_payload_for_strategy(day_row)
+                last_known_btc = self._last_known_close(day_df)
 
+                # Simulation-only (strategy never sees this row)
+                day_row = self.prices.df.loc[day]
+                open_price = self._row_open(day_row)
+
+                holdings_payload = self._strategy_holdings_payload(last_known_btc)
+
+                # Run strategy
                 try:
                     raw_orders = runner(day_df.copy(), holdings_payload)
                 except Exception:
-                    return (
-                        "Strategy execution error (stack trace follows):\n"
-                        + traceback.format_exc()
-                    )
+                    return "Strategy execution error (stack trace follows):\n" + traceback.format_exc()
 
                 if raw_orders is None:
                     raw_orders = []
                 if not isinstance(raw_orders, list):
                     return "Order error: run(df, holdings) must return a list of orders (or an empty list)."
 
-                # 3) Validate + apply orders in-order
-                orders: list[Order] = []
+                # Validate orders
                 try:
-                    for item in raw_orders:
-                        orders.append(Order.__get_pydantic_core_schema__)  # type: ignore[attr-defined]
-                except Exception:
-                    # Fallback: normal validation loop (works in Pydantic v2)
-                    try:
-                        orders = [Order.model_validate(item) for item in raw_orders]  # type: ignore[attr-defined]
-                    except Exception as e:
-                        return f"Order error: invalid order payload(s): {e}"
+                    orders = OrdersAdapter.validate_python(raw_orders)
+                except Exception as e:
+                    return f"Order error: invalid order payload(s): {e}"
 
+                # Apply orders at Open
                 try:
-                    self._apply_orders(orders, execution_price=close_price)
+                    self._apply_orders(orders, execution_price=open_price)
                 except Exception as e:
                     return f"Order error: {e}"
 
-            # Final valuation uses last day close:
-            last_day = dates[-1]
-            last_row = self.prices.df.loc[last_day]
-            snapshots = self._snapshot_holdings(last_row)
+                # Apply stop-loss / take-profit intraday
+                try:
+                    self._auto_close_on_thresholds(day_row)
+                except Exception as e:
+                    return f"Order error: {e}"
 
+            # Final valuation at end day Close
+            last_day = pd.Timestamp(dates[-1]).normalize()
+            last_row = self.prices.df.loc[last_day]
+            close_price = self._row_close(last_row)
+
+            snapshots = self._snapshot_holdings_with_price(close_price)
             total_usd = float(sum(h.total_value_usd for h in snapshots))
             revenue_percent = ((total_usd / float(self.INITIAL_PORTFOLIO_USD)) - 1.0) * 100.0
 
