@@ -23,14 +23,14 @@ class DateRangeQueryInput(BaseModel):
 class GetForDateRangeTool(BaseTool):
     """
     Tool for retrieving cryptocurrency historical daily price data for a specific date range.
-    Returns OHLCV (Open, High, Low, Close, Volume) data points.
+    Returns OHLCV (Date, Open, High, Low, Close, Volume) data points.
     Use this tool for small date ranges (max 30 days) to analyze price movements.
     """
     name: str = "Get Price Data For Date Range"
     description: str = f"""
         Retrieves cryptocurrency historical daily OHLCV price data for a given date range.
         Use this tool when you need to analyze cryptocurrency prices between two specific dates.
-        The tool returns a list of price datapoints with Open, High, Low, Close, and Volume.
+        The tool returns a list of price datapoints with Date, Open, High, Low, Close, and Volume.
         Dates must be within the available dataset range: {BTC_DATASET_START_DATE} to {BTC_DATASET_END_DATE}.
         The maximum date range is 30 days to limit output size, which is only suitable for small analyses
  """

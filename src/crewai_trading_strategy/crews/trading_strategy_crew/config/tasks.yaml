@@ -43,6 +43,7 @@ implement_strategy_task:
     {strategy_code_guidelines}
   expected_output: >
     A string containing only formatted Python code that implements the trading strategy as per the detailed design.
+    The code must be tested using the external backtest tool.
   agent: developer
   context:
     - design_strategy_task
