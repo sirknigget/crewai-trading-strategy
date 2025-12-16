@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 import datetime as dt
 import pandas as pd
 from utils.safe_python_code_executor import SafePythonCodeExecutor
+from datetime import date
 
 DateLike = Union[str, dt.date, dt.datetime, pd.Timestamp]
 
@@ -13,12 +14,10 @@ class PriceDataPoint(BaseModel):
     high: float = Field(alias="High")
     low: float = Field(alias="Low")
     close: float = Field(alias="Close")
-    adj_close: float = Field(alias="Adj Close")
     volume: int = Field(alias="Volume")
 
-
 class HistoricalDailyPricesHelper:
-    REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+    REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 
     def __init__(self, csv_path: str, executor: Optional[SafePythonCodeExecutor] = None):
         df = pd.read_csv(csv_path, parse_dates=True, index_col="Date")
@@ -39,7 +38,12 @@ class HistoricalDailyPricesHelper:
             raise ValueError(f"Invalid {label} date: {value!r}. Could not parse.") from e
         return pd.Timestamp(ts).normalize()
 
-    def getForDateRange(self, start: DateLike, end: DateLike) -> list[PriceDataPoint]:
+    def get_df_until_date(self, date: str) -> pd.DataFrame:
+        cutoff = pd.to_datetime(date)
+        end = self.df.index.searchsorted(cutoff, side="right")
+        return self.df.iloc[:end].copy()
+
+    def get_for_date_range(self, start: DateLike, end: DateLike) -> list[PriceDataPoint]:
         start_ts = self._to_timestamp(start, "start")
         end_ts = self._to_timestamp(end, "end")
 
@@ -74,21 +78,21 @@ class HistoricalDailyPricesHelper:
         compiled = self._executor.check_and_compile(code)
         ns = self._executor.execute_compiled(compiled)
 
-        runner = ns.get("runOnData")
+        runner = ns.get("run_on_data")
         if not callable(runner):
-            raise ValueError("code must define a top-level function named runOnData(df).")
+            raise ValueError("code must define a top-level function named run_on_data(df).")
 
         # Signature check stays in this class. [web:28]
         sig = inspect.signature(runner)
         params = list(sig.parameters.values())
 
         if len(params) != 1:
-            raise ValueError(f"runOnData must accept exactly 1 argument (df), found {len(params)}.")
+            raise ValueError(f"run_on_data must accept exactly 1 argument (df), found {len(params)}.")
 
         if params[0].kind not in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         ):
-            raise ValueError("runOnData(df) must take df as a positional argument.")
+            raise ValueError("run_on_data(df) must take df as a positional argument.")
 
         return runner(self.df.copy())

@@ -10,26 +10,26 @@ class ExecuteCodeInput(BaseModel):
     code: str = Field(
         ...,
         description=(
-            "Python code string that defines a function named 'runOnData(df)' which takes "
+            "Python code string that defines a function named 'run_on_data(df)' which takes "
             "a pandas DataFrame as input. The code can only import safe libraries like "
             "numpy, pandas, math, statistics, datetime, and re. Example: "
-            "def runOnData(df):\\n    return df['Close'].mean()"
+            "def run_on_data(df):\\n    return df['Close'].mean()"
         )
     )
 
 
 class ExecuteCodeTool(BaseTool):
     """
-    Tool for executing custom Python analysis code on the Bitcoin price dataset.
+    Tool for executing custom Python analysis code on the cryptocurrency price dataset.
     Allows dynamic data analysis with safety restrictions.
     """
     name: str = "Execute Custom Analysis Code on BTC Data"
     description: str = (
         "Executes custom Python code to analyze the Bitcoin historical price dataset. "
-        "The code must define a function named 'runOnData(df)' that receives a pandas DataFrame. "
+        "The code must define a function named 'run_on_data(df)' that receives a pandas DataFrame. "
         "Only safe data analysis libraries are allowed (numpy, pandas, math, statistics, datetime, re). "
-        "Use this tool to perform calculations, statistical analysis, or custom transformations on the BTC data. "
-        "Returns the result of the runOnData function execution."
+        "Use this tool to perform calculations, statistical analysis, or custom transformations on the cryptocurrency data. "
+        "Returns the result of the run_on_data function execution."
     )
     args_schema: Type[BaseModel] = ExecuteCodeInput
 

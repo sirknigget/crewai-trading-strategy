@@ -21,12 +21,13 @@ class GetForDateRangeTool(BaseTool):
     """
     Tool for retrieving Bitcoin historical daily price data for a specific date range.
     Returns OHLCV (Open, High, Low, Close, Volume) data points.
+    The maximum date range is 30 days to limit output size.
     """
     name: str = "Get BTC Price Data For Date Range"
     description: str = (
         "Retrieves Bitcoin historical daily OHLCV price data for a given date range. "
         "Use this tool when you need to analyze BTC prices between two specific dates. "
-        "The tool returns a list of price datapoints with Open, High, Low, Close, Adj Close, and Volume. "
+        "The tool returns a list of price datapoints with Open, High, Low, Close, and Volume. "
         "Dates must be within the available dataset range (2014-09-18 onwards)."
     )
     args_schema: Type[BaseModel] = DateRangeQueryInput
@@ -37,6 +38,11 @@ class GetForDateRangeTool(BaseTool):
         description="HistoricalDailyPricesHelper instance with loaded BTC data"
     )
 
+    def gap_in_days(self, start_date: str, end_date: str) -> int:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+        return (end - start).days
+
     def _run(self, start_date: str, end_date: str) -> str:
         """
         Execute the date range query and return formatted results.
@@ -44,8 +50,13 @@ class GetForDateRangeTool(BaseTool):
         Returns a formatted string representation of the price data
         that's suitable for LLM consumption.
         """
+
+        # Enforce maximum date range of 30 days
+        if self.gap_in_days(start_date, end_date) > 30:
+            return "Error: Date range exceeds maximum allowed span of 30 days."
+
         try:
-            datapoints: List[PriceDataPoint] = self.helper.getForDateRange(
+            datapoints: List[PriceDataPoint] = self.helper.get_for_date_range(
                 start_date,
                 end_date
             )
