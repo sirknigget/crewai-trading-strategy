@@ -1,12 +1,13 @@
+# historical_daily_prices_helper.py
 import inspect
 from typing import Optional, Union, Any
 from pydantic import BaseModel, Field
 import datetime as dt
 import pandas as pd
 from utils.safe_python_code_executor import SafePythonCodeExecutor
-from datetime import date
 
 DateLike = Union[str, dt.date, dt.datetime, pd.Timestamp]
+
 
 class PriceDataPoint(BaseModel):
     date: dt.date
@@ -15,6 +16,7 @@ class PriceDataPoint(BaseModel):
     low: float = Field(alias="Low")
     close: float = Field(alias="Close")
     volume: int = Field(alias="Volume")
+
 
 class HistoricalDailyPricesHelper:
     REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
@@ -38,12 +40,13 @@ class HistoricalDailyPricesHelper:
             raise ValueError(f"Invalid {label} date: {value!r}. Could not parse.") from e
         return pd.Timestamp(ts).normalize()
 
-    def get_df_until_date(self, date: str) -> pd.DataFrame:
-        cutoff = pd.to_datetime(date)
+    def get_df_until_date(self, date: DateLike) -> pd.DataFrame:
+        cutoff = self._to_timestamp(date, "cutoff")
         end = self.df.index.searchsorted(cutoff, side="right")
         return self.df.iloc[:end].copy()
 
-    def get_for_date_range(self, start: DateLike, end: DateLike) -> list[PriceDataPoint]:
+    def _validate_and_slice_range(self, start: DateLike, end: DateLike) -> tuple[
+        pd.Timestamp, pd.Timestamp, pd.DataFrame]:
         start_ts = self._to_timestamp(start, "start")
         end_ts = self._to_timestamp(end, "end")
 
@@ -67,6 +70,16 @@ class HistoricalDailyPricesHelper:
                 "The dataset may not contain those specific dates."
             )
 
+        return start_ts, end_ts, subset
+
+    def get_trading_dates(self, start: DateLike, end: DateLike) -> list[pd.Timestamp]:
+        _, _, subset = self._validate_and_slice_range(start, end)
+        # normalize the returned dates as well (in case the index has time components)
+        return [pd.Timestamp(x).normalize() for x in subset.index.to_list()]
+
+    def get_for_date_range(self, start: DateLike, end: DateLike) -> list[PriceDataPoint]:
+        _, _, subset = self._validate_and_slice_range(start, end)
+
         out: list[PriceDataPoint] = []
         for idx, row in subset.iterrows():
             payload = row.to_dict()
@@ -82,7 +95,6 @@ class HistoricalDailyPricesHelper:
         if not callable(runner):
             raise ValueError("code must define a top-level function named run_on_data(df).")
 
-        # Signature check stays in this class. [web:28]
         sig = inspect.signature(runner)
         params = list(sig.parameters.values())
 
