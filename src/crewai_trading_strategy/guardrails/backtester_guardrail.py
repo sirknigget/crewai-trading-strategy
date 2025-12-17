@@ -14,6 +14,7 @@ from utils.strategy_backtester import StrategyBacktester
 START_DATE = parse_yyyy_mm_dd(BTC_DATASET_START_DATE) + timedelta(days=1)
 END_DATE = parse_yyyy_mm_dd(BTC_DATASET_END_DATE)
 
+# Guardrail to validate strategy implementation via backtesting - ensure the code conforms with the backtester API
 class ValidateBacktesterGuardrail:
     _backtester: StrategyBacktester
 

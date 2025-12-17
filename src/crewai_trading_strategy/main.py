@@ -33,9 +33,6 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
     def start(self) -> TradingStrategyCreationState:
 
         crew_output = TradingStrategyCrew().crew().kickoff(inputs=inputs)
-
-        print("Crew output:\n" + dump_object(crew_output))
-
         implementation_task = next(t for t in crew_output.tasks_output if t.name == "implement_strategy_task")
         strategy_code = implementation_task.pydantic.implementation
         strategy_code = strip_llm_formatting(strategy_code)

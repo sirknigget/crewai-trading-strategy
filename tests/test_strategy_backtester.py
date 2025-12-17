@@ -1,9 +1,14 @@
 # tests/test_strategy_backtester.py
+from datetime import timedelta
+
 import pandas as pd
 import pytest
 
+from crewai_trading_strategy.constants import BTC_DATASET_START_DATE, BTC_DATASET_END_DATE
+from utils.date_utils import parse_yyyy_mm_dd
 from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper
 from utils.strategy_backtester import StrategyBacktester
+
 
 @pytest.fixture()
 def btc_csv_path(tmp_path):
@@ -19,9 +24,9 @@ def btc_csv_path(tmp_path):
             "Date": pd.to_datetime(
                 ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
             ),
-            "Open":  [100, 100, 105, 110, 120],
-            "High":  [102, 112, 120, 121, 130],
-            "Low":   [98,   95, 100, 108, 115],
+            "Open": [100, 100, 105, 110, 120],
+            "High": [102, 112, 120, 121, 130],
+            "Low": [98, 95, 100, 108, 115],
             "Close": [100, 105, 110, 120, 125],
             "Volume": [1, 1, 1, 1, 1],
         }
@@ -253,3 +258,17 @@ def run(df, holdings):
 
     assert isinstance(res, str)
     assert "Order error: Insufficient USD for BUY" in res
+
+
+def test_temp(btc_csv_path):
+    _, bt = make_helper_and_bt("data/BTC-USD_2014_2024.csv")
+
+    # read code from file
+    with open("output/trading_strategy_implementation.py", "r") as f:
+        code = f.read()
+    START_DATE = parse_yyyy_mm_dd(BTC_DATASET_START_DATE) + timedelta(days=1)
+    END_DATE = parse_yyyy_mm_dd(BTC_DATASET_END_DATE)
+    res = bt.test_strategy(START_DATE, END_DATE, code)
+
+    print(f"\n\n{res}\n\n")
+    assert not isinstance(res, str)

@@ -1,170 +1,208 @@
-# Detailed Design Document for BTC Daily Trading Strategy Implementation
+---
+# Detailed Technical Design: BTC Daily Midnight Momentum Strategy
 
-## 1. Strategy Logic Description
+## 1. Strategy Logic Overview
 
-This trading strategy aims to capture profitable trades on BTC by combining trend-following and momentum indicators evaluated on daily closing prices. It operates using only historical data available up to, but not including, the current day’s close. The logic is as follows:
+- **Trade Timing:** Evaluated once daily at the close (end of day close in OHLCV).
+- **Entry (Buy) Criteria:**  
+  * Enter (buy with all USD) if ALL the following:
+    1. MACD (12 EMA – 26 EMA) > MACD Signal Line (9 EMA of MACD)
+    2. 14-day RSI > 50
+    3. Close > 21-day SMA
 
-- **Indicators Computed Daily:**
-  - 10-day Simple Moving Average (SMA10) of Close price (fast SMA)
-  - 50-day Simple Moving Average (SMA50) of Close price (slow SMA)
-  - 14-day Relative Strength Index (RSI) of Close price
-  - MACD line computed as difference between 12-day EMA and 26-day EMA on Close price
-  - MACD signal line computed as 9-day EMA of MACD line
-  - MACD crossover signals identified by comparing previous day and current day MACD line vs signal line relations
+- **Exit (Sell) Criteria:**  
+  * Exit (sell all BTC) if ANY of the following:
+    1. MACD < MACD Signal Line
+    2. 14-day RSI < 50
+    3. Close >= 1.20 × last buy price (take profit)
+    4. Close <= 0.92 × last buy price (stop loss)
 
-- **Entry (Buy) Conditions:**
-  - Current day’s SMA10 is strictly above SMA50 → indicates upward trend
-  - Current day’s RSI < 30 → oversold condition, suggests potential bounce
-  - Current day’s MACD line crosses above the MACD signal line → bullish momentum shift
+- **Trade Management:**  
+  * Invest 100% in either USD or BTC, never both. On buy, use all USD. On sell, clear all BTC.
+  * Set stop-loss and take-profit with the respective price levels for BTC buys.
+  * All signals are checked at latest available close in `df`.
 
-  If all three conditions are met on a given daily close and there is currently no BTC holding, the strategy buys BTC using ALL available USD cash in portfolio at the current closing price.
-
-- **Exit (Sell) Conditions:**
-  - Any one of the following is true on current daily close:
-    - SMA10 falls below SMA50 → trend reversal signal
-    - RSI rises above 70 → overbought signal
-    - MACD line crosses below the MACD signal line → bearish momentum signal
-
-  If any exit condition is met and the strategy has an open BTC position, it sells the full BTC position at the current close price, converting BTC back to USD.
-
-- **Position Management Constraints:**
-  - Positions are all or nothing: either full cash or full BTC; no partial trades.
-  - Trades are executed only at the daily close price.
-  - Stop loss and take profit indicators are not explicitly stated for this version and will be set to None.
-  - The strategy is robust to data scarcity by requiring enough data to compute all indicators; if insufficient data is present, no trades are made.
-  - The holding list is used to determine current cash and BTC status. The USD holding has `holding_id == "USD"`. BTC holdings (if any) are identified from holdings list by `asset == "BTC"`.
+---
 
 ## 2. Function and Method Signatures
 
-The top-level interface method required by the trading system is:
+- **Main Entrypoint**:  
+  ```python
+  def run(df, holdings):
+      ...
+  ```
 
-```python
-def run(df: pd.DataFrame, holdings: list[dict]) -> list[dict]:
-    """
-    df: DataFrame with columns ["Date", "Open", "High", "Low", "Close", "Volume"] sorted ascending by date.
-    holdings: current holdings list as per system API.
+- **Indicators/Helpers**:  
+  ```python
+  def calculate_ema(series: pd.Series, window: int) -> pd.Series
 
-    Returns:
-        List of order dicts (BUY or SELL orders) or empty list if no trade.
-    """
-```
+  def calculate_macd(df: pd.DataFrame) -> (pd.Series, pd.Series)
+      # Returns: (macd_series, macd_signal_series)
 
-Helper functions (all internal to the single code snippet) include:
+  def calculate_rsi(series: pd.Series, period: int) -> pd.Series
 
-- `calculate_sma(series: pd.Series, window: int) -> pd.Series`
-- `calculate_ema(series: pd.Series, span: int) -> pd.Series`
-- `calculate_rsi(series: pd.Series, period: int) -> pd.Series`
-- `calculate_macd(series: pd.Series) -> tuple(pd.Series, pd.Series)`  
-  Returns MACD line and MACD signal line
-- `detect_macd_cross(macd_line: pd.Series, signal_line: pd.Series) -> tuple[bool, bool]`  
-  Returns `(cross_above, cross_below)` booleans for latest day
+  def get_usd_holding(holdings: list[dict]) -> dict
+
+  def get_btc_holding(holdings: list[dict]) -> dict | None
+
+  def get_last_btc_buy_price(holdings: list[dict]) -> float | None
+  ```
+
+- **Order Construction**:  
+  Orders are returned as per required schemas:
+    - Buy order dict per spec ("action": "BUY", ...)
+    - Sell order dict per spec ("action": "SELL", ...)
+
+---
 
 ## 3. Data Structures
 
-- Input `df`: pandas DataFrame as described.
-- Input `holdings`: list of dict, each dict contains at least:
-  - `holding_id`: str
-  - `asset`: str ("USD" or "BTC")
-  - `amount`: float
-  - `unit_value_usd`: float
-  - `total_value_usd`: float
-  - optional fields: `stop_loss`, `take_profit` (both float or None)
+- **Inputs:**
+  - **df (pandas.DataFrame):**  
+    Must include at least 26 rows for MACD, 21 for SMA, 14 for RSI. Columns are "Open", "High", "Low", "Close", "Volume".
 
-- Output `orders`: list of dict with schema:
+  - **holdings (list[dict])**  
+    Tracks current USD and BTC holdings, including:
+    - `holding_id` (str)
+    - `asset` ("USD" or "BTC")
+    - `amount` (float)
+    - `unit_value_usd` (value/unit at last close)
+    - `stop_loss`, `take_profit` (floats, for BTC entries)
 
-  **BUY order:**
+- **Indicators:** (pandas.Series or float)
+    - 12 EMA, 26 EMA (for MACD)
+    - MACD, MACD Signal (9 EMA of MACD)
+    - 14-day RSI
+    - 21-day SMA
 
-  ```python
-  {
-    "action": "BUY",
-    "asset": "BTC",
-    "amount": float,         # BTC units > 0
-    "stop_loss": None,
-    "take_profit": None
-  }
-  ```
+---
 
-  **SELL order:**
-
-  ```python
-  {
-    "action": "SELL",
-    "holding_id": str,       # from BTC holding_id in holdings
-    "amount": float         # BTC units > 0 and <= holding amount
-  }
-  ```
-
-## 4. Pseudocode for Main Algorithm
+## 4. Pseudocode Algorithm
 
 ```plaintext
-function run(df, holdings):
-    if df is None or len(df) < 50 + 14:  # require enough to calculate all indicators
+run(df, holdings):
+    # Ensure enough data for all indicators
+    if df is None or len(df) < 26:
         return []
 
-    Extract Close price series from df
+    # Compute indicators
+    close = df["Close"]
+    macd, macd_signal = calculate_macd(df)
+    rsi14 = calculate_rsi(close, 14)
+    sma21 = close.rolling(21).mean()
 
-    Compute SMA10 and SMA50 on Close
-    Compute RSI14 on Close
-    Compute MACD line and MACD signal line on Close
+    # Only look at the last value
+    last_close = float(close.iloc[-1])
+    last_macd = float(macd.iloc[-1])
+    last_macd_signal = float(macd_signal.iloc[-1])
+    last_rsi14 = float(rsi14.iloc[-1])
+    last_sma21 = float(sma21.iloc[-1])
 
-    Identify MACD crossover signals on last day (day -1):
-        cross_above = MACD line crossed above signal line today
-        cross_below = MACD line crossed below signal line today
+    # Gather holdings
+    usd_holding = get_usd_holding(holdings)
+    btc_holding = get_btc_holding(holdings)
+    last_btc_buy_price = get_last_btc_buy_price(holdings)  # Use "unit_value_usd" from BTC holding
 
-    Extract last day's indicators:
-        last_sma10 = SMA10 at last day
-        last_sma50 = SMA50 at last day
-        last_rsi = RSI14 at last day
+    orders = []
 
-    Get USD holding (amount, total_value), BTC holdings (list)
-
-    Determine current position:
-        if BTC holdings is empty => position = "cash"
-        else => position = "btc"
-
-    Initialize empty list orders
-
-    # Entry condition (buy)
-    if position == "cash":
-        if last_sma10 > last_sma50 and last_rsi < 30 and cross_above:
-            available_usd = USD holding.amount
-            if available_usd > 0 and last_close > 0:
-                btc_qty = available_usd / last_close
-                create BUY order with btc_qty, stop_loss=None, take_profit=None
-                add order to orders
-
-    # Exit condition (sell)
-    if position == "btc":
-        if last_sma10 < last_sma50 or last_rsi > 70 or cross_below:
-            # Sell entire BTC holdings (only one holding assumed or aggregate all)
-            for each btc holding in btc holdings:
-                sell amount = holding.amount
-                create SELL order with holding_id and sell amount
-                add order to orders
-            # strategy fully sells all BTC positions, so loop through all holdings
-
+    if btc_holding is None:
+        # Only enter if all buy signals
+        if (last_macd > last_macd_signal) and (last_rsi14 > 50) and (last_close > last_sma21):
+            buy_amount = usd_holding["amount"] / last_close
+            take_profit = round(last_close * 1.20, 2)
+            stop_loss = round(last_close * 0.92, 2)
+            orders.append({
+                "action": "BUY",
+                "asset": "BTC",
+                "amount": float(buy_amount),
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+            })
+    else:
+        # Determine if any sell conditions trigger
+        sell = False
+        sell_reasons = []
+        if last_macd < last_macd_signal:
+            sell = True
+            sell_reasons.append("MACD")
+        if last_rsi14 < 50:
+            sell = True
+            sell_reasons.append("RSI")
+        if last_btc_buy_price is not None:
+            if last_close >= last_btc_buy_price * 1.20:
+                sell = True
+                sell_reasons.append("Take-profit")
+            if last_close <= last_btc_buy_price * 0.92:
+                sell = True
+                sell_reasons.append("Stop-loss")
+        if sell:
+            orders.append({
+                "action": "SELL",
+                "holding_id": btc_holding["holding_id"],
+                "amount": float(btc_holding["amount"]),
+            })
     return orders
 ```
 
----
+#### Indicator Calculations:
 
-# Complete Design Summary
+- **EMA Calculation**: Use pandas.Series.ewm(span=N, adjust=False).mean()
+- **MACD**: 12 EMA minus 26 EMA; MACD Signal is 9 EMA of MACD.
+- **RSI**: Use standard 14-period RSI (calculate up/down changes, compute average gain/loss, derive RSI).
+- **SMA**: Use pandas.Series.rolling(window=N).mean()
 
-- Uses standard, well-known indicator formulas.
-- Uses only available historical data before current execution (no lookahead).
-- Detects MACD crosses by comparing prior day to current day.
-- Buys entire available cash amounts into BTC when entry conditions met.
-- Sells entire BTC position when exit conditions met.
-- Returns list of orders in correct execution order.
-- Returns empty list if no trade.
-- Robust to data insufficiency.
-- No intra-day or partial trades.
-- No external dependencies beyond `pandas`.
+#### Note on Holdings:
+- The BTC "holding" includes "unit_value_usd" which is used as last buy price for stop-loss/take-profit. If not present (older code), fall back to None.
 
 ---
 
-# Next Step: Implementation based on this design.
+## Implementation Notes
 
-This detailed design enables a developer to implement the strategy in a single Python code snippet that calculates indicators, checks signals, manages positions, and produces the correct trading orders conforming to the specified API. The pseudocode guides the control flow, and the signatures define all required helper functions.
+- All calculations must only use data available up to the penultimate close (NO lookahead).
+- All orders are placed in full (all-in/all-out, per capital available).
+- The strategy never leaves the portfolio partly in USD, partly in BTC — it's always one or the other.
+- The main `run(df, holdings)` function is top-level, with helpers allowed but NOT nested inside class.
+- No I/O, no reliance on anything except passed-in parameters.
 
-This concludes the detailed design requested.
+---
+
+## Example Data Flow
+
+| Signal Condition      | Portfolio State | Action            | Order Output                    |
+|----------------------|-----------------|-------------------|----------------------------------|
+| All buy triggers met | USD only        | Enter BTC         | BUY (all USD → BTC; set TP/SL)   |
+| Any sell trigger met | BTC only        | Exit to USD       | SELL (all BTC; refer holding_id) |
+| None trigger         | Any             | Hold/no action    | []                               |
+
+---
+
+## Summary Table: Indicator Calculation Windows
+
+| Indicator | Window/Period | Data Required (rows) |
+|-----------|--------------|----------------------|
+| EMA 12    | 12           | 12                   |
+| EMA 26    | 26           | 26                   |
+| MACD Sig  | 9 EMA of MACD| 26 (+9)              |
+| 14d RSI   | 14           | 14                   |
+| 21d SMA   | 21           | 21                   |
+
+*The minimum rows needed is 26 (for MACD start). If not, return no orders.*
+
+---
+
+# Developer Ready Summary
+
+To implement:
+
+1. At each call to `run(df, holdings)`, ensure at least 26 rows in `df`. If not, return [].
+2. Compute indicators (MACD, MACD signal, 14d RSI, 21d SMA) at the latest close.
+3. If no BTC held: If all buy criteria true, BUY full USD amount of BTC, set stop-loss/take-profit.
+4. If holding BTC: If any sell criterion true (indicator or price-based), SELL all BTC from that holding.
+5. Return all orders in correct format as required.
+6. All indicator and accounting logic is robust to missing/insufficient data.
+7. Use latest close price for sizing, never exceeds available USD/BTC.
+8. Do not perform I/O, do not print/log, do not use global/mutable state.
+
+---
+
+This design provides everything needed for a developer to implement the `run(df, holdings)` trading strategy function, fully compliant with provided system and strategy rules.
