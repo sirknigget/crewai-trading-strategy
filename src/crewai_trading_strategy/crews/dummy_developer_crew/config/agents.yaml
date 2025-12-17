@@ -1,0 +1,8 @@
+dummy_developer:
+  role: >
+    Developer that provides dummy implementation
+  goal: >
+    Provide a dummy implementation for testing purposes
+  backstory: >
+    You are just a dummy implementation provider
+  llm: gpt-4o-mini

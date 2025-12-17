@@ -1,4 +1,7 @@
+from typing import List
+
 from crewai import Agent, Crew, Process, Task
+from crewai.agents.agent_builder.base_agent import BaseAgent
 
 from crewai.project import CrewBase, agent, crew, task, before_kickoff
 
@@ -17,44 +20,31 @@ backtest_code_guardrail = ValidateBacktesterGuardrail(backtester=backtester)
 class DummyDeveloperCrew():
     """DummyDeveloperCrew crew"""
 
-    previous_attempts_info = ""
+    agents: List[BaseAgent]
+    tasks: List[Task]
 
-    @before_kickoff
-    def prepare_inputs(self, inputs):
-        self.previous_attempts_info = inputs.get("previous_attempts_info", "")
-
-    @crew
-    def crew(self) -> Crew:
-        agent = Agent(
-            name="dummy_developer",
-            role="Developer that provides dummy implementation",
-            goal="Provide a dummy implementation for testing purposes",
-            backstory="You are an experienced developer with attention to detail",
+    @agent
+    def dummy_developer(self) -> Agent:
+        return Agent(
+            config=self.agents_config['dummy_developer'],
             verbose=True,
-            allow_code_execution=True,
-            code_execution_mode="safe",
         )
 
-        task = Task(
-            name="implement_strategy_task",
-            description=f"""
-                Create a dummy implementation of a trading strategy according to the following API guidelines:
-                {get_strategy_code_guidelines()}
-                
-                {self.previous_attempts_info}
-            """,
-            expected_output="""
-                The Python code implementing the trading strategy. ONLY return the python code without any headers, explanations, or markdown formatting.
-            """,
-            agent=agent,
+    @task
+    def implement_strategy_task(self) -> Task:
+        return Task(
+            config=self.tasks_config['implement_strategy_task'],
             guardrails=[backtest_code_guardrail.get_guardrail_function()],
             guardrail_max_retries=5,
             output_pydantic=ImplementationTaskOutput,
         )
 
+    @crew
+    def crew(self) -> Crew:
         return Crew(
-            agents=[agent],
-            tasks=[task],
+            agents=self.agents,  # Automatically created by the @agent decorator
+            tasks=self.tasks,  # Automatically created by the @task decorator
             process=Process.sequential,
             verbose=True,
         )
+

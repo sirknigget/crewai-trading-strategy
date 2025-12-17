@@ -25,7 +25,7 @@ class TradingStrategyAttempt(BaseModel):
     backtest_result: BacktestResult
 
 class TradingStrategyCreationState(BaseModel):
-    attempts_log: list[TradingStrategyAttempt]
+    attempts_log: list[TradingStrategyAttempt] = []
 
 BASE_INPUTS: dict = {
     "coin_symbol": "BTC",
@@ -69,30 +69,34 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
     def handle_crew_output(self, crew_output) -> TradingStrategyAttempt:
 
         def find_task(task_name: str):
-            return next(t for t in crew_output.tasks_output if t.name == task_name)
+            return next((t for t in crew_output.tasks_output if t.name == task_name), None)
 
-        attempt_log = TradingStrategyAttempt()
 
         research_strategy_task = find_task("outline_strategy_task")
-        attempt_log.strategy_outline = research_strategy_task.raw if research_strategy_task else ""
+        strategy_outline = research_strategy_task.raw if research_strategy_task else ""
 
         design_strategy_task = find_task("design_strategy_task")
-        attempt_log.strategy_design = design_strategy_task.raw if design_strategy_task else ""
+        strategy_design = design_strategy_task.raw if design_strategy_task else ""
 
         implementation_task = find_task("implement_strategy_task")
         implementation = implementation_task.pydantic.implementation if implementation_task else ""
-        attempt_log.strategy_implementation = strip_llm_formatting(implementation)
+        strategy_implementation = strip_llm_formatting(implementation)
 
-        backtest_result = self.backtest_strategy(attempt_log.strategy_implementation)
-        attempt_log.backtest_result = backtest_result
+        backtest_result = self.backtest_strategy(strategy_implementation)
+        backtest_result = backtest_result
 
+        attempt_log = TradingStrategyAttempt(
+            strategy_outline=strategy_outline,
+            strategy_design=strategy_design,
+            strategy_implementation=strategy_implementation,
+            backtest_result=backtest_result,
+        )
         return attempt_log
 
     @start()
     def start(self) -> TradingStrategyCreationState:
         print("Starting Trading Strategy Creation Flow")
 
-        self.state.attempt_count = 1
         self.state.attempts_log = []
         return self.state
 
@@ -100,9 +104,9 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
     def main_loop(self) -> str:
         print(f"\n\n=== ATTEMPT {len(self.state.attempts_log) + 1} TO CREATE TRADING STRATEGY ===\n\n")
         inputs = BASE_INPUTS.copy()
-        inputs["previous_attempts_info"] = self.create_previous_attempts_info(self.state)
+        inputs["previous_attempts_info"] = self.create_previous_attempts_info()
 
-        crew_output = DummyDeveloperCrew().crew().kickoff(inputs=BASE_INPUTS)
+        crew_output = DummyDeveloperCrew().crew().kickoff(inputs=inputs)
 
         attempt_log = self.handle_crew_output(crew_output)
         self.state.attempts_log.append(attempt_log)
@@ -114,7 +118,7 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
     @listen("break")
     def finish(self):
         print("\n\n=== TRADING STRATEGY CREATION FLOW FINISHED ===\n\n")
-        best_attempt = max(self.state.attempts_log, key=lambda attempt: attempt.backtest_result.total_return)
+        best_attempt = max(self.state.attempts_log, key=lambda attempt: attempt.backtest_result.revenue_percent)
         print("Best Attempt Backtest Result:")
         print(dump_object(best_attempt.backtest_result))
         print("\nBest Attempt Strategy Implementation Code:")

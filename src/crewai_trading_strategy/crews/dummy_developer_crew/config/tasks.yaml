@@ -1,0 +1,9 @@
+implement_strategy_task:
+  description: >
+    Return the exact example Python implementation in the guidelines below, as it is, without any modifications.
+    {strategy_code_guidelines}
+
+    {previous_attempts_info}
+  expected_output: >
+    Return a JSON object containing a single property "implementation" with the complete string of the Python trading strategy code inside.
+  agent: dummy_developer
