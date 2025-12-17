@@ -58,6 +58,8 @@ PRACTICAL GUIDANCE
 - Use holdings to determine available cash (USD holding) and open BTC positions.
 - If selling, choose the correct holding_id and ensure the amount does not exceed that holding's amount.
 - If buying, choose a BTC amount that is affordable given the USD holding.
+- Use the latest close price for sizing calculations and order restrictions to avoid order execution errors.
+  (last_close = float(df["Close"].iloc[-1]))
 - Place orders in the exact sequence they should execute.
 
 EXAMPLE SKELETON (edit into your strategy)

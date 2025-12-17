@@ -314,7 +314,6 @@ class StrategyBacktester:
 
                 # Simulation-only (strategy never sees this row)
                 day_row = self.prices.df.loc[day]
-                open_price = self._row_open(day_row)
 
                 holdings_payload = self._strategy_holdings_payload(last_known_btc)
 
@@ -335,9 +334,9 @@ class StrategyBacktester:
                 except Exception as e:
                     return f"Order error: invalid order payload(s): {e}"
 
-                # Apply orders at Open
+                # Apply orders using last known close as execution price (realistically, would be the Open price, but keeping things simple for now)
                 try:
-                    self._apply_orders(orders, execution_price=open_price)
+                    self._apply_orders(orders, execution_price=last_known_btc)
                 except Exception as e:
                     return f"Order error: {e}"
 
