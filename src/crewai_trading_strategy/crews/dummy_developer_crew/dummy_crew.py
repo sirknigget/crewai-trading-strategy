@@ -1,6 +1,6 @@
 from crewai import Agent, Crew, Process, Task
 
-from crewai.project import CrewBase, agent, crew, task
+from crewai.project import CrewBase, agent, crew, task, before_kickoff
 
 from crewai_trading_strategy.constants import BTC_DATASET_PATH
 from crewai_trading_strategy.guardrails.backtester_guardrail import ValidateBacktesterGuardrail
@@ -17,6 +17,11 @@ backtest_code_guardrail = ValidateBacktesterGuardrail(backtester=backtester)
 class DummyDeveloperCrew():
     """DummyDeveloperCrew crew"""
 
+    previous_attempts_info = ""
+
+    @before_kickoff
+    def prepare_inputs(self, inputs):
+        self.previous_attempts_info = inputs.get("previous_attempts_info", "")
 
     @crew
     def crew(self) -> Crew:
@@ -35,6 +40,8 @@ class DummyDeveloperCrew():
             description=f"""
                 Create a dummy implementation of a trading strategy according to the following API guidelines:
                 {get_strategy_code_guidelines()}
+                
+                {self.previous_attempts_info}
             """,
             expected_output="""
                 The Python code implementing the trading strategy. ONLY return the python code without any headers, explanations, or markdown formatting.

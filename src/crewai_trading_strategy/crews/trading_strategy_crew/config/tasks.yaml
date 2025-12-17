@@ -5,6 +5,8 @@ research_strategy_task:
     The "Get Price Data For Date Range" tool only allows 30 consecutive days of data to be queried at a time, so it's only suitable for small analyses.
     The dataset contains data for the dates {dataset_start_date} to {dataset_end_date}.
     In order to run a thorough analysis on the whole dataset, use the "Execute Custom Analysis Code on Data" tool which will provide the whole dataset to your code for analysis.
+    
+    {previous_attempts_info}
   expected_output: >
     An outline of a profitable trading strategy for {coin_symbol} that runs daily at midnight (close time).
     The strategy must be possible to implement using only the historical daily price data provided at execution.
