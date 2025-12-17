@@ -51,6 +51,58 @@ def run_on_data(df):
     assert ns["run_on_data"](None) == 123
 
 
+def test_execute_with_helper_function():
+    ex = SafePythonCodeExecutor()
+    code = """
+def helper_function():
+    return 42
+
+def run_on_data(df):
+    return helper_function()
+"""
+    compiled = ex.check_and_compile(code)
+    ns = ex.execute_compiled(compiled)
+    assert "helper_function" in ns
+    assert "run_on_data" in ns
+    assert ns["run_on_data"](None) == 42
+
+
+def test_execute_with_class_definition():
+    ex = SafePythonCodeExecutor()
+    code = """
+class Adder:
+    def __init__(self, x):
+        self.x = x
+    def add(self, y):
+        return self.x + y
+
+def run_on_data(df):
+    return Adder(10).add(5)
+"""
+    compiled = ex.check_and_compile(code)
+    ns = ex.execute_compiled(compiled)
+    assert "Adder" in ns
+    assert ns["run_on_data"](None) == 15
+
+
+def test_execute_class_method_can_call_helper():
+    ex = SafePythonCodeExecutor()
+    code = """
+def helper(x):
+    return x * 2
+
+class Model:
+    def score(self, x):
+        return helper(x) + 1
+
+def run_on_data(df):
+    return Model().score(20)
+"""
+    compiled = ex.check_and_compile(code)
+    ns = ex.execute_compiled(compiled)
+    assert ns["run_on_data"](None) == 41
+
+
 def test_execute_compiled_can_use_injected_np_without_import():
     ex = SafePythonCodeExecutor()
     code = """

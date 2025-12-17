@@ -26,24 +26,21 @@ class SafePythonCodeExecutor:
             "__import__", "open", "exec", "eval", "compile", "input",
             "globals", "locals", "vars", "dir", "help",
             "getattr", "setattr", "delattr",
-            # block grabbing the provided builtins dict directly
             "__builtins__",
         }
 
-        # Allow classes: DO NOT ban __build_class__/object/type/super.
+        # Allow classes: do not ban __build_class__/object/type/super.
         self.banned_builtins = banned_builtins or {
-            "eval", "exec", "compile",  # arbitrary code execution
-            "open", "input", "breakpoint",  # IO / debugger
-            "globals", "locals", "vars", "dir", "help",  # introspection helpers
-            "getattr", "setattr", "delattr",  # attribute escape helpers
+            "eval", "exec", "compile",
+            "open", "input", "breakpoint",
+            "globals", "locals", "vars", "dir", "help",
+            "getattr", "setattr", "delattr",
         }
 
-        # Target common sandbox-escape introspection attributes (don’t ban all dunders).
         self.banned_attributes = banned_attributes or {
             "__class__", "__subclasses__", "__bases__", "__mro__",
             "__getattribute__", "__getattr__", "__setattr__", "__delattr__",
             "__dict__", "__globals__", "__code__", "__closure__",
-            # frame/coroutine/generator introspection (often used to reach globals)
             "f_globals", "f_locals",
             "gi_frame", "cr_frame",
         }
@@ -90,9 +87,7 @@ class SafePythonCodeExecutor:
                 continue
             safe[name] = obj
 
-        # Force the sandbox import hook.
         safe["__import__"] = safe_import
-
         return MappingProxyType(safe)
 
     def execute_compiled(
@@ -108,15 +103,16 @@ class SafePythonCodeExecutor:
 
         safe_builtins = self._build_safe_builtins(_safe_import)
 
-        exec_globals = {
+        # One shared namespace so defs/classes/helpers can see each other.
+        exec_ns: dict[str, Any] = {
             "__builtins__": safe_builtins,
-            "__name__": "__sandbox__",  # helps some class/module behaviors
+            "__name__": "__sandbox__",
             "pd": pd,
             "np": np,
         }
         if injected_globals:
-            exec_globals.update(injected_globals)
+            exec_ns.update(injected_globals)
 
-        exec_locals: dict[str, Any] = {}
-        exec(compiled, exec_globals, exec_locals)
-        return {**exec_globals, **exec_locals}
+        # Key fix: use the same dict for globals and locals.
+        exec(compiled, exec_ns, exec_ns)
+        return exec_ns

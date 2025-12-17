@@ -188,3 +188,17 @@ def run(df, holdings):
     assert res.total_portfolio_usd == pytest.approx(10020.0, abs=1e-6)
     assert res.revenue_percent == pytest.approx(20.0 / 10000.0 * 100.0, abs=1e-6)
     assert sorted([h.asset for h in res.holdings]) == ["USD"]
+
+
+def test_helper_function_allowed(btc_csv_path):
+    _, bt = make_helper_and_bt(btc_csv_path)
+
+    code = """
+def get_order():
+    return [{"action": "BUY", "amount": 1.0, "asset": "BTC"}]
+def run(df, holdings):
+    return get_order()
+"""
+    print(code)
+    res = bt.test_strategy("2024-01-02", "2024-01-05", code)
+    assert not isinstance(res, str)
