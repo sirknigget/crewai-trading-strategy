@@ -112,3 +112,13 @@ def run_on_data(df):
     compiled = ex.check_and_compile(code)
     ns = ex.execute_compiled(compiled)
     assert ns["run_on_data"](None) == 6
+
+def test_execute_compiled_can_use_injected_math_without_import():
+    ex = SafePythonCodeExecutor()
+    code = """
+def run_on_data(df):
+    return int(math.sqrt(16))
+"""
+    compiled = ex.check_and_compile(code)
+    ns = ex.execute_compiled(compiled)
+    assert ns["run_on_data"](None) == 4

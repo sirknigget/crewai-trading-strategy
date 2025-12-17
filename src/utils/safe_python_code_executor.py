@@ -7,6 +7,10 @@ from typing import Any, Optional
 
 import pandas as pd
 import numpy as np
+import math
+import statistics
+import datetime
+import re
 
 
 class SafePythonCodeExecutor:
@@ -109,6 +113,10 @@ class SafePythonCodeExecutor:
             "__name__": "__sandbox__",
             "pd": pd,
             "np": np,
+            "math": math,
+            "statistics": statistics,
+            "datetime": datetime,
+            "re": re,
         }
         if injected_globals:
             exec_ns.update(injected_globals)

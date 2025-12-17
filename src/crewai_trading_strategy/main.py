@@ -40,6 +40,10 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
         strategy_code = implementation_task.pydantic.implementation
         strategy_code = strip_llm_formatting(strategy_code)
 
+        # save code to output file
+        with open(f"output/trading_strategy_implementation.py", "w") as f:
+            f.write(strategy_code)
+
         self.state.strategy_code = strategy_code
         return self.state
 

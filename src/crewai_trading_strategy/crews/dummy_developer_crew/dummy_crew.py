@@ -2,8 +2,16 @@ from crewai import Agent, Crew, Process, Task
 
 from crewai.project import CrewBase, agent, crew, task
 
+from crewai_trading_strategy.constants import BTC_DATASET_PATH
+from crewai_trading_strategy.guardrails.backtester_guardrail import ValidateBacktesterGuardrail
 from crewai_trading_strategy.strategy_code_guidelines import get_strategy_code_guidelines
+from crewai_trading_strategy.types import ImplementationTaskOutput
+from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper
+from utils.strategy_backtester import StrategyBacktester
 
+historicalPriceHelper = HistoricalDailyPricesHelper(csv_path=BTC_DATASET_PATH)
+backtester = StrategyBacktester(prices=historicalPriceHelper)
+backtest_code_guardrail = ValidateBacktesterGuardrail(backtester=backtester)
 
 @CrewBase
 class DummyDeveloperCrew():
@@ -29,9 +37,12 @@ class DummyDeveloperCrew():
                 {get_strategy_code_guidelines()}
             """,
             expected_output="""
-                A string containing the Python code implementing the trading strategy. ONLY return the python code without any headers, explanations, or markdown formatting.
+                The Python code implementing the trading strategy. ONLY return the python code without any headers, explanations, or markdown formatting.
             """,
-            agent=agent
+            agent=agent,
+            guardrails=[backtest_code_guardrail.get_guardrail_function()],
+            guardrail_max_retries=5,
+            output_pydantic=ImplementationTaskOutput,
         )
 
         return Crew(

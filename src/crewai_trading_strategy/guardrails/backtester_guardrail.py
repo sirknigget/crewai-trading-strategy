@@ -44,4 +44,4 @@ class ValidateBacktesterGuardrail:
             return False, result
 
         # BacktestResult is valid
-        return True, code
+        return True, task_output

@@ -47,4 +47,4 @@ implement_strategy_task:
   agent: developer
   context:
     - design_strategy_task
-  output_file: output/trading_strategy_implementation.py
+  output_file: output/trading_strategy_implementation

@@ -9,9 +9,12 @@ from pydantic import BaseModel, Field
 class ExecuteCodeInput(BaseModel):
     code: str = Field(..., description=(
         "Python code string that defines a function named 'run_on_data(df)' which takes "
-        "a pandas DataFrame as input. The code can only import safe libraries like "
-        "numpy, pandas, math, statistics, datetime, and re."
+        "a pandas DataFrame as input."
+        " The code can only use safe libraries like "
+        "numpy (aliased as np), pandas (aliased as pd), math, statistics, datetime, and re."
+        "The libraries are pre-imported, so do not include import statements."
         "The dataframe contains the columns: Date, Open, High, Low, Close, Volume"
+        "Do not double-escape line breaks (use actual line breaks in the string)."
     ))
 
 
