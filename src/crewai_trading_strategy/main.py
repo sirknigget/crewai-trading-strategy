@@ -72,7 +72,7 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
             return next((t for t in crew_output.tasks_output if t.name == task_name), None)
 
 
-        research_strategy_task = find_task("outline_strategy_task")
+        research_strategy_task = find_task("research_strategy_task")
         strategy_outline = research_strategy_task.raw if research_strategy_task else ""
 
         design_strategy_task = find_task("design_strategy_task")
@@ -103,10 +103,11 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
     @router(or_("start", "continue"))
     def main_loop(self) -> str:
         print(f"\n\n=== ATTEMPT {len(self.state.attempts_log) + 1} TO CREATE TRADING STRATEGY ===\n\n")
+
         inputs = BASE_INPUTS.copy()
         inputs["previous_attempts_info"] = self.create_previous_attempts_info()
 
-        crew_output = DummyDeveloperCrew().crew().kickoff(inputs=inputs)
+        crew_output = TradingStrategyCrew().crew().kickoff(inputs=inputs)
 
         attempt_log = self.handle_crew_output(crew_output)
         self.state.attempts_log.append(attempt_log)
@@ -118,6 +119,7 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
     @listen("break")
     def finish(self):
         print("\n\n=== TRADING STRATEGY CREATION FLOW FINISHED ===\n\n")
+
         best_attempt = max(self.state.attempts_log, key=lambda attempt: attempt.backtest_result.revenue_percent)
         print("Best Attempt Backtest Result:")
         print(dump_object(best_attempt.backtest_result))
