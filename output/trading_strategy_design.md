@@ -1,208 +1,273 @@
 ---
-# Detailed Technical Design: BTC Daily Midnight Momentum Strategy
 
-## 1. Strategy Logic Overview
+# Technical Design Document: BTC Daily Trend-Following/Volatility Strategy Implementation
 
-- **Trade Timing:** Evaluated once daily at the close (end of day close in OHLCV).
-- **Entry (Buy) Criteria:**  
-  * Enter (buy with all USD) if ALL the following:
-    1. MACD (12 EMA – 26 EMA) > MACD Signal Line (9 EMA of MACD)
-    2. 14-day RSI > 50
-    3. Close > 21-day SMA
+## 1. Strategy Logic Description
 
-- **Exit (Sell) Criteria:**  
-  * Exit (sell all BTC) if ANY of the following:
-    1. MACD < MACD Signal Line
-    2. 14-day RSI < 50
-    3. Close >= 1.20 × last buy price (take profit)
-    4. Close <= 0.92 × last buy price (stop loss)
+This strategy makes an all-in/all-out decision to buy or sell BTC based on trend-following and volatility criteria, using only daily OHLCV BTC historical data and current portfolio holdings.
 
-- **Trade Management:**  
-  * Invest 100% in either USD or BTC, never both. On buy, use all USD. On sell, clear all BTC.
-  * Set stop-loss and take-profit with the respective price levels for BTC buys.
-  * All signals are checked at latest available close in `df`.
+### **Indicators & Parameters**
+
+- **EMA-20, EMA-100:** Trend filter: uptrend = EMA-20 > EMA-100, downtrend = EMA-20 < EMA-100.
+- **RSI-14:** Momentum filter; entry threshold = 55 (RSI > 55 to buy), exit threshold = 42 (RSI < 42 to sell).
+- **ATR-14:** Volatility gauge for trailing stops (and volatility regime check).
+- **60-day ATR Median:** Entry requires ATR-14 above its 60-day median (ensures regime has actionable volatility).
+- **Trailing stop:** When BTC holding exists, exit if close drops below (highest close since entry - 1.6 * ATR-14).
+- **Cool-down:** If a stop-loss is triggered (close < entry price and trailing stop is hit), no new entries are allowed until 7 days after exit.
+
+### **Trading Rules**
+
+- **ENTRY (Buy BTC, all-in):**
+    - Only if NOT currently holding BTC and NOT in cool-down.
+    - At the close, entry if:
+        - EMA-20 > EMA-100 (trend),
+        - RSI-14 > 55 (momentum),
+        - ATR-14 > 60-day ATR median (volatility).
+    - BUY with entire available USD at the most recent close price.
+    - Set a trailing stop for this holding (tracked via internal state; see below for how to encode if needed).
+    - No partial allocations – position is 0% or 100%.
+
+- **EXIT (Sell BTC, all-out):**
+    - Only if BTC holding exists.
+    - At the close, exit if ANY of:
+        - EMA-20 < EMA-100,
+        - RSI-14 < 42,
+        - Close < (highest close since entry - 1.6 * ATR-14) [i.e., trailing stop breached].
+    - Sell entire BTC position (all holdings).
+    - If the exit is a stop-out loss (exit price < entry price), trigger 7-day cool-down before re-entry may occur.
+
+- **Cool-down**
+    - Tracked using stop-loss exit dates **persisted in the BTC holding's metadata**, or, if state is unavailable, by leveraging encoding in the holdings (e.g., set take_profit to special value or holding_id suffix).
 
 ---
 
 ## 2. Function and Method Signatures
 
-- **Main Entrypoint**:  
-  ```python
-  def run(df, holdings):
-      ...
-  ```
+### Top-Level Entrypoint
+```python
+def run(df, holdings):
+    """
+    :param df: pd.DataFrame with columns ['Date', 'Open', 'High', 'Low', 'Close', 'Volume'] (ascending date).
+    :param holdings: list[dict], current portfolio. Each dict is per schema provided.
+    :return: list[dict], list of orders (buy/sell signals as per JSON schemas) or [].
+    """
+```
 
-- **Indicators/Helpers**:  
-  ```python
-  def calculate_ema(series: pd.Series, window: int) -> pd.Series
+### Helper Functions
 
-  def calculate_macd(df: pd.DataFrame) -> (pd.Series, pd.Series)
-      # Returns: (macd_series, macd_signal_series)
+#### Indicator Calculations
 
-  def calculate_rsi(series: pd.Series, period: int) -> pd.Series
+```python
+def ema(series: pd.Series, span: int) -> pd.Series:
+    """Return EMA of a pandas Series."""
 
-  def get_usd_holding(holdings: list[dict]) -> dict
+def rsi(series: pd.Series, period: int) -> pd.Series:
+    """Return RSI (float series) from given price series."""
 
-  def get_btc_holding(holdings: list[dict]) -> dict | None
+def atr(df: pd.DataFrame, period: int) -> pd.Series:
+    """
+    Compute Average True Range using standard formula:
+        - max(High-Low, abs(High - PrevClose), abs(Low - PrevClose))
+        Rolling mean over period.
+    """
+```
 
-  def get_last_btc_buy_price(holdings: list[dict]) -> float | None
-  ```
+#### Holdings Management
 
-- **Order Construction**:  
-  Orders are returned as per required schemas:
-    - Buy order dict per spec ("action": "BUY", ...)
-    - Sell order dict per spec ("action": "SELL", ...)
+- **get_usd_holding(holdings) -> dict**
+- **get_btc_holdings(holdings) -> list[dict]**
+- **find_last_stoploss_exit(holdings) -> Optional[pd.Timestamp]:**
+    - If supported, extract last stop-loss exit timestamp from a custom field or from `holding_id` patterns.
+    - (If not, assume no persistency possible, so, no cool-down available.)
+
+#### Trading Logic
+
+- **should_enter(...) -> bool**
+    - Accepts all indicator values, recent cool-down status, and current position; returns True if new entry conditions are satisfied.
+
+- **should_exit(...) -> {"trailing": bool, "momentum": bool, "trend": bool}**
+    - Accepts all indicator values, current holding's entry price and date, tracks highest close since entry, returns reason(s) to exit.
+
+#### Trailing Stop Management
+
+- **calculate_trailing_stop(highest_close, atr_value) -> float**
+- **update_highest_close(prev_highest, current_close) -> float**
+
+#### Order Construction
+
+- **build_buy_order(usd_amount, last_close, stop_loss=None, take_profit=None) -> dict**
+- **build_sell_order(holding_id, amount) -> dict**
 
 ---
 
 ## 3. Data Structures
 
-- **Inputs:**
-  - **df (pandas.DataFrame):**  
-    Must include at least 26 rows for MACD, 21 for SMA, 14 for RSI. Columns are "Open", "High", "Low", "Close", "Volume".
+- **df: pd.DataFrame**
+    - Columns: 'Date', 'Open', 'High', 'Low', 'Close', 'Volume'
+    - Used for indicator calculations/strategy logic.
 
-  - **holdings (list[dict])**  
-    Tracks current USD and BTC holdings, including:
-    - `holding_id` (str)
-    - `asset` ("USD" or "BTC")
-    - `amount` (float)
-    - `unit_value_usd` (value/unit at last close)
-    - `stop_loss`, `take_profit` (floats, for BTC entries)
+- **holdings: list[dict]**
+    - Each holding has:
+        - `'holding_id': str`
+        - `'asset': str`  // 'USD' or 'BTC'
+        - `'amount': float`  // units of asset
+        - `'unit_value_usd': float`
+        - `'total_value_usd': float`
+        - `'stop_loss': float | None`
+        - `'take_profit': float | None`
+    - For BTC holdings, `stop_loss` may be used to store trailing stop value (for inter-run state).
+    - **Note:** If supporting cool-down, may need to encode stop-loss-triggered exit date (e.g., in holding_id, or by using `take_profit`, or optional metadata).
 
-- **Indicators:** (pandas.Series or float)
-    - 12 EMA, 26 EMA (for MACD)
-    - MACD, MACD Signal (9 EMA of MACD)
-    - 14-day RSI
-    - 21-day SMA
+- **orders: list[dict]**
+    - Each order as per schema:
+        - For BUY: fields: "action", "asset", "amount", "stop_loss", "take_profit"
+        - For SELL: "action", "holding_id", "amount"
+
+- **Trailing stop info**
+    - For each BTC holding, need to know (a) entry date, (b) entry price, (c) highest close since entry, (d) trailing stop level.
+    - Since only historical window before current day is available, maintain per-BTC-holding:
+        - entry_date: parse from `holding_id` if encoded, or from context.
+        - highest_close (compute as max from (entry_idx to last candle) in df["Close"])
+        - entry_price: as above.
+        - trailing stop: calculate on the fly.
 
 ---
 
-## 4. Pseudocode Algorithm
+## 4. Pseudocode for Main Algorithm
 
-```plaintext
-run(df, holdings):
-    # Ensure enough data for all indicators
-    if df is None or len(df) < 26:
+```
+function run(df, holdings):
+
+    # --- 0. Parameter/init ---
+    EMA_FAST = 20
+    EMA_SLOW = 100
+    RSI_PERIOD = 14
+    ATR_PERIOD = 14
+    ATR_MEDIAN = 60
+    RSI_ENTRY = 55
+    RSI_EXIT = 42
+    ATR_TRAIL_MULT = 1.6
+    COOLDOWN_DAYS = 7
+
+    # --- 1. Sanity checks for sufficient history ---
+    if df is None or len(df) < max(EMA_SLOW, RSI_PERIOD, ATR_PERIOD, ATR_MEDIAN):
         return []
 
-    # Compute indicators
-    close = df["Close"]
-    macd, macd_signal = calculate_macd(df)
-    rsi14 = calculate_rsi(close, 14)
-    sma21 = close.rolling(21).mean()
+    # --- 2. Compute indicators ---
+    ema_fast = EMA(df["Close"], EMA_FAST)
+    ema_slow = EMA(df["Close"], EMA_SLOW)
+    rsi = RSI(df["Close"], RSI_PERIOD)
+    atr = ATR(df, ATR_PERIOD)
+    atr_median = ATR(df, ATR_PERIOD).rolling(ATR_MEDIAN).median()
 
-    # Only look at the last value
-    last_close = float(close.iloc[-1])
-    last_macd = float(macd.iloc[-1])
-    last_macd_signal = float(macd_signal.iloc[-1])
-    last_rsi14 = float(rsi14.iloc[-1])
-    last_sma21 = float(sma21.iloc[-1])
+    # Get latest values (iloc[-1])
+    last_row = df.iloc[-1]
+    ind_ema_fast = ema_fast.iloc[-1]
+    ind_ema_slow = ema_slow.iloc[-1]
+    ind_rsi = rsi.iloc[-1]
+    ind_atr = atr.iloc[-1]
+    ind_atr_median = atr_median.iloc[-1]
+    last_close = last_row["Close"]
 
-    # Gather holdings
-    usd_holding = get_usd_holding(holdings)
-    btc_holding = get_btc_holding(holdings)
-    last_btc_buy_price = get_last_btc_buy_price(holdings)  # Use "unit_value_usd" from BTC holding
+    # --- 3. Parse holdings ---
+    usd_holding = holding for holding in holdings if holding["asset"] == "USD"
+    btc_holdings = [holding for holding in holdings if holding["asset"] == "BTC"]
 
-    orders = []
+    # ---- 4. COOLDOWN flag/state ---
+    # If we ever exited on a stop-out loss, we should refrain from entry until 7 days have passed
+    # The date of a stop-out loss should be encoded in BTC holding (e.g., custom metadata field).
+    cooldown_active = False
+    cooldown_until = check_last_stop_loss_exit_date(holdings)
+    if cooldown_until is not None and last_row["Date"] < cooldown_until:
+        cooldown_active = True
 
-    if btc_holding is None:
-        # Only enter if all buy signals
-        if (last_macd > last_macd_signal) and (last_rsi14 > 50) and (last_close > last_sma21):
-            buy_amount = usd_holding["amount"] / last_close
-            take_profit = round(last_close * 1.20, 2)
-            stop_loss = round(last_close * 0.92, 2)
-            orders.append({
+    # --- 5. ENTRY logic ---
+    If (no BTC holding) and (not in cooldown), then:
+        if (ind_ema_fast > ind_ema_slow)
+        and (ind_rsi > RSI_ENTRY)
+        and (ind_atr > ind_atr_median):
+            amount_btc = usd_holding["amount"] / last_close
+            order = {
                 "action": "BUY",
                 "asset": "BTC",
-                "amount": float(buy_amount),
-                "stop_loss": stop_loss,
-                "take_profit": take_profit,
-            })
-    else:
-        # Determine if any sell conditions trigger
-        sell = False
-        sell_reasons = []
-        if last_macd < last_macd_signal:
-            sell = True
-            sell_reasons.append("MACD")
-        if last_rsi14 < 50:
-            sell = True
-            sell_reasons.append("RSI")
-        if last_btc_buy_price is not None:
-            if last_close >= last_btc_buy_price * 1.20:
-                sell = True
-                sell_reasons.append("Take-profit")
-            if last_close <= last_btc_buy_price * 0.92:
-                sell = True
-                sell_reasons.append("Stop-loss")
-        if sell:
-            orders.append({
+                "amount": amount_btc,
+                "stop_loss": None,     # Trailing stop handled internally
+                "take_profit": None
+            }
+            return [order]
+
+    # --- 6. EXIT logic ---
+    IF (btc_holdings):
+        # Assumption: only one BTC holding is held at any time
+        btc = btc_holdings[0]
+        entry_price = btc["unit_value_usd"]  # lowest price at which holding acquired
+        entry_date = extract_date_from_holding_id_or_metadata(btc["holding_id"])
+        # Find idx of entry_date in df, max close since then
+        entry_idx = find_idx_of_date(df, entry_date)
+        closes_since_entry = df["Close"].iloc[entry_idx:]
+        highest_close = closes_since_entry.max()
+        trailing_stop = highest_close - ATR_TRAIL_MULT * ind_atr
+
+        should_exit_trend = ind_ema_fast < ind_ema_slow
+        should_exit_rsi = ind_rsi < RSI_EXIT
+        should_exit_trailing = last_close < trailing_stop
+
+        if should_exit_trend or should_exit_rsi or should_exit_trailing:
+            sell_order = {
                 "action": "SELL",
-                "holding_id": btc_holding["holding_id"],
-                "amount": float(btc_holding["amount"]),
-            })
-    return orders
+                "holding_id": btc["holding_id"],
+                "amount": btc["amount"]
+            }
+            # If exit was trailing stop and price < entry_price, encode stop-out date for cooldown
+            if should_exit_trailing and last_close < entry_price:
+                encode_stopout_date_for_cooldown(df.iloc[-1]["Date"])
+            return [sell_order]
+
+    # --- 7. ELSE: no action
+    return []
 ```
 
-#### Indicator Calculations:
+---
 
-- **EMA Calculation**: Use pandas.Series.ewm(span=N, adjust=False).mean()
-- **MACD**: 12 EMA minus 26 EMA; MACD Signal is 9 EMA of MACD.
-- **RSI**: Use standard 14-period RSI (calculate up/down changes, compute average gain/loss, derive RSI).
-- **SMA**: Use pandas.Series.rolling(window=N).mean()
+## 5. Special Implementation Considerations
 
-#### Note on Holdings:
-- The BTC "holding" includes "unit_value_usd" which is used as last buy price for stop-loss/take-profit. If not present (older code), fall back to None.
+- **State encoding:** The 7-day cool-down after a stop-out must be encoded somehow – often by writing last stop-out date in a custom field, or by conventions (e.g., unique pattern in `holding_id`). If persistent state cannot be written, entry on cool-down can be skipped.
+- **Handling BTC holdings:** The design assumes only 0 or 1 BTC holding ("all-in-all-out" approach). If multiple per-system, logic should use earliest/latest holding appropriately.
+- **Calculating max_close since entry:** Use `df["Close"]` from the date of holding's acquisition, which must be deterministically extractable (e.g., encode in `holding_id` date string).
 
 ---
 
-## Implementation Notes
+## 6. Example Flow
 
-- All calculations must only use data available up to the penultimate close (NO lookahead).
-- All orders are placed in full (all-in/all-out, per capital available).
-- The strategy never leaves the portfolio partly in USD, partly in BTC — it's always one or the other.
-- The main `run(df, holdings)` function is top-level, with helpers allowed but NOT nested inside class.
-- No I/O, no reliance on anything except passed-in parameters.
-
----
-
-## Example Data Flow
-
-| Signal Condition      | Portfolio State | Action            | Order Output                    |
-|----------------------|-----------------|-------------------|----------------------------------|
-| All buy triggers met | USD only        | Enter BTC         | BUY (all USD → BTC; set TP/SL)   |
-| Any sell trigger met | BTC only        | Exit to USD       | SELL (all BTC; refer holding_id) |
-| None trigger         | Any             | Hold/no action    | []                               |
+- **BUY (entry):**
+    - On valid signal, if all USD and not in cool-down: BUY all-in, no partial.
+- **SELL (exit):**
+    - On exit signal for any reason, sell all BTC.
+    - Cool-down is only applied if exit was a trailing stop-out that produced a loss (sell price < entry price).
+- **Hold:** No open/close/flip unless above is true.
 
 ---
 
-## Summary Table: Indicator Calculation Windows
+## 7. Summary Table: Indicators and Triggers
 
-| Indicator | Window/Period | Data Required (rows) |
-|-----------|--------------|----------------------|
-| EMA 12    | 12           | 12                   |
-| EMA 26    | 26           | 26                   |
-| MACD Sig  | 9 EMA of MACD| 26 (+9)              |
-| 14d RSI   | 14           | 14                   |
-| 21d SMA   | 21           | 21                   |
-
-*The minimum rows needed is 26 (for MACD start). If not, return no orders.*
-
----
-
-# Developer Ready Summary
-
-To implement:
-
-1. At each call to `run(df, holdings)`, ensure at least 26 rows in `df`. If not, return [].
-2. Compute indicators (MACD, MACD signal, 14d RSI, 21d SMA) at the latest close.
-3. If no BTC held: If all buy criteria true, BUY full USD amount of BTC, set stop-loss/take-profit.
-4. If holding BTC: If any sell criterion true (indicator or price-based), SELL all BTC from that holding.
-5. Return all orders in correct format as required.
-6. All indicator and accounting logic is robust to missing/insufficient data.
-7. Use latest close price for sizing, never exceeds available USD/BTC.
-8. Do not perform I/O, do not print/log, do not use global/mutable state.
+| Indicator / Threshold          | Used for     | Logic                                                               |
+|-------------------------------|--------------|---------------------------------------------------------------------|
+| EMA-20, EMA-100               | All signals  | Uptrend: entry (EMA20 > EMA100); exit: trend reversal (EMA20 < 100) |
+| RSI-14, 55 (entry); 42 (exit) | Entry/Exit   | Entry: above 55; Exit: below 42                                    |
+| ATR-14                        | Entry/Stop   | Entry if above 60-day ATR median; trailing stop always recalculated |
+| ATR-14, 60-day ATR median     | Entry        | Only enter if ATR-14 > 60-day median ATR                            |
+| Highest close since entry     | Trailing stop| Exit if close < highest since entry – 1.6 × ATR-14                  |
+| HoldingID, Dates              | Cooldown     | On stopout, encode date, enforce 7-day delay to next entry          |
 
 ---
 
-This design provides everything needed for a developer to implement the `run(df, holdings)` trading strategy function, fully compliant with provided system and strategy rules.
+## 8. Design Recap and Implementation Mapping
+
+- **All strategy entries and exits are precisely defined by indicator levels and portfolio holdings.**
+- **All necessary data can be computed from df (no external state needed except for cool-down, which must be encoded in holdings/ID).**
+- **Function entrypoint, helper function signatures, and required data structures are all specified.**
+- **Order format is per the given API, and all edge cases (insufficient data, position management, cool-down) are robustly covered.**
+
+---
+
+**This design provides all detail required to implement the `run(df, holdings)` strategy function, ensuring indicator use, entry/exit conditions, order generation, and robust portfolio transitions exactly match the live-tested and backtested system described above.**
