@@ -44,6 +44,7 @@ implement_strategy_task:
     {strategy_code_guidelines}
   expected_output: >
     The complete Python code implementing the trading strategy.
+    Return a JSON object containing a single property "implementation" with the complete string of the Python trading strategy code inside.
   agent: developer
   context:
     - design_strategy_task
