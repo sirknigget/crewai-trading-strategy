@@ -21,4 +21,4 @@ developer:
     Implement the trading strategy based on the detailed design provided by the engineering lead.
   backstory: >
     You're a seasoned Python developer with a knack for writing clean, efficient code.
-  llm: anthropic/claude-sonnet-4-5
+  llm: gpt-4.1-mini
