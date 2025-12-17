@@ -124,8 +124,8 @@ def test_stop_loss_triggers_same_day_after_buy(btc_csv_path):
     # Day2 Low=100 triggers stop_loss=108 => sell at 108 => -2 USD.
     code = """\
 def run(df, holdings):
-    last_day = df.index[-1]
-    if str(last_day.date()) == "2024-01-01":
+    last_day = df["Date"].iloc[-1]
+    if str(last_day) == "2024-01-01":
         return [{"action": "BUY", "asset": "BTC", "amount": 1.0, "stop_loss": 108.0}]
     return []
 """
@@ -149,8 +149,9 @@ def test_multi_day_take_profit_and_stop_loss(btc_csv_path):
     # Net +9 => 10009
     code = """\
 def run(df, holdings):
-    last = str(df.index[-1].date())
+    last = str(df["Date"].iloc[-1])
     if last == "2024-01-01":
+        print("buy")
         return [{"action": "BUY", "asset": "BTC", "amount": 1.0, "take_profit": 120.0}]
     if last == "2024-01-03":
         return [{"action": "BUY", "asset": "BTC", "amount": 1.0, "stop_loss": 119.0}]
@@ -173,7 +174,7 @@ def test_success_buy_then_sell_last_day_open(btc_csv_path):
     # Buy at day2 Open=110, sell at day5 Open=130 => +20
     code = """\
 def run(df, holdings):
-    last = str(df.index[-1].date())
+    last = str(df["Date"].iloc[-1])
     if last == "2024-01-01":
         return [{"action": "BUY", "asset": "BTC", "amount": 1.0}]
     if last == "2024-01-04":

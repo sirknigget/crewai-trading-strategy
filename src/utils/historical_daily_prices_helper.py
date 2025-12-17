@@ -10,6 +10,7 @@ DateLike = Union[str, dt.date, dt.datetime, pd.Timestamp]
 
 
 class PriceDataPoint(BaseModel):
+    # Allow both alias keys (e.g., "Date", "Open") and field names (e.g., "date", "open")
     model_config = ConfigDict(populate_by_name=True)
 
     date: dt.date = Field(alias="Date")
@@ -32,11 +33,7 @@ class HistoricalDailyPricesHelper:
         if missing:
             raise ValueError(f"CSV is missing required columns: {missing}")
 
-        df = df.sort_index()
-        df.index = df.index.normalize()
-        df.index.name = "Date"
-
-        self.df = df
+        self.df = df.sort_index()
         self._executor = executor or SafePythonCodeExecutor()
 
     def _to_timestamp(self, value: DateLike, label: str) -> pd.Timestamp:
@@ -47,21 +44,16 @@ class HistoricalDailyPricesHelper:
         return pd.Timestamp(ts).normalize()
 
     def _with_date_column(self, df: pd.DataFrame) -> pd.DataFrame:
-        if not isinstance(df.index, pd.DatetimeIndex):
-            raise ValueError("Internal error: expected DatetimeIndex.")
+        # Convert DatetimeIndex -> "Date" column for public outputs / code execution inputs
+        out = df.reset_index()  # index -> column
+        if "index" in out.columns and "Date" not in out.columns:
+            out = out.rename(columns={"index": "Date"})
 
-        out = df.copy()
-        out.index = out.index.normalize()
-        out.index.name = "Date"
-
-        # Ensure a visible "Date" column exists while keeping the DatetimeIndex.
-        if "Date" in out.columns:
-            out["Date"] = out.index
-        else:
-            out.insert(0, "Date", out.index)
-
+        # Enforce date-only (no timestamp/timezone)
+        out["Date"] = pd.to_datetime(out["Date"]).dt.date  # date objects like 2025-12-17
         return out
 
+    # Public method: now includes a "Date" column
     def get_df_until_date(self, date: DateLike) -> pd.DataFrame:
         cutoff = self._to_timestamp(date, "cutoff")
         end = self.df.index.searchsorted(cutoff, side="right")
@@ -99,18 +91,21 @@ class HistoricalDailyPricesHelper:
         _, _, subset = self._validate_and_slice_range(start, end)
         return [pd.Timestamp(x).normalize() for x in subset.index.to_list()]
 
+    # Public method: model supports "Date" as the alias for date, and you can serialize with by_alias=True
     def get_for_date_range(self, start: DateLike, end: DateLike) -> list[PriceDataPoint]:
         _, _, subset = self._validate_and_slice_range(start, end)
+
         subset_out = self._with_date_column(subset)
 
         out: list[PriceDataPoint] = []
-        for idx, row in subset_out.iterrows():
+        for _, row in subset_out.iterrows():
             payload = row.to_dict()
-            # Use the index as the canonical date; it is a Timestamp -> date.
-            payload["Date"] = pd.Timestamp(idx).date()
+            # Ensure payload["Date"] is a python date (not Timestamp) for the Pydantic field type
+            payload["Date"] = pd.Timestamp(payload["Date"]).date()
             out.append(PriceDataPoint.model_validate(payload))
         return out
 
+    # Code execution: now the df provided to run_on_data(df) includes a "Date" column
     def executeCode(self, code: str) -> Any:
         compiled = self._executor.check_and_compile(code)
         ns = self._executor.execute_compiled(compiled)

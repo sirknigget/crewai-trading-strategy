@@ -8,9 +8,9 @@ This code represents a real-world trading strategy that makes decisions using ON
 
 INPUTS
 1) df (pandas.DataFrame)
-- Daily OHLCV time series.
-- Index: date-like (DatetimeIndex).
-- Columns: Open, High, Low, Close, Volume.
+- Daily OHLCV time series sorted by date ascending (oldest first).
+- Index: RangeIndex
+- Columns: Date, Open, High, Low, Close, Volume.
 - IMPORTANT: df contains only historical data available BEFORE the current execution time (no future/current candle data).
 
 2) holdings (list[dict])
