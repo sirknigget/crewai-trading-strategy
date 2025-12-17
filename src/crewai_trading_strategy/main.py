@@ -126,6 +126,16 @@ class TradingStrategyCreationFlow(Flow[TradingStrategyCreationState]):
         print("\nBest Attempt Strategy Implementation Code:")
         print(best_attempt.strategy_implementation)
 
+        # Write the best strategy's files to output directory
+        with open("output/trading_strategy_outline.md", "w") as f:
+            f.write(best_attempt.strategy_outline)
+        
+        with open("output/trading_strategy_design.md", "w") as f:
+            f.write(best_attempt.strategy_design)
+        
+        with open("output/trading_strategy_implementation.py", "w") as f:
+            f.write(best_attempt.strategy_implementation)
+
         # Log full attempts to a file
         with open("output/trading_strategy_creation_attempts_log.json", "w") as f:
             f.write(dump_object(self.state.attempts_log))
