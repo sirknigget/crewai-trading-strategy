@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Python project managed with `pyproject.toml` and `uv.lock`.
 - Prefer `uv` for local development commands.
+- Always run Python through `uv` in this repo (`uv run python ...`); do not rely on bare `python`/`python3` from the system PATH.
 - API keys are loaded from the repo-root `.env` file, which is gitignored.
 
 ### Install dependencies
