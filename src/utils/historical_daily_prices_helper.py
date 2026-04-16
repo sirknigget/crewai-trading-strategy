@@ -33,8 +33,17 @@ class HistoricalDailyPricesHelper:
         if missing:
             raise ValueError(f"CSV is missing required columns: {missing}")
 
+        self.csv_path = csv_path
         self.df = df.sort_index()
         self._executor = executor or SafePythonCodeExecutor()
+
+    @property
+    def dataset_start_date(self) -> str:
+        return pd.Timestamp(self.df.index.min()).normalize().date().isoformat()
+
+    @property
+    def dataset_end_date(self) -> str:
+        return pd.Timestamp(self.df.index.max()).normalize().date().isoformat()
 
     def _to_timestamp(self, value: DateLike, label: str) -> pd.Timestamp:
         try:

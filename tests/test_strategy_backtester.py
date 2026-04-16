@@ -1,20 +1,18 @@
-# tests/test_strategy_backtester.py
 from datetime import timedelta
 
 import pandas as pd
 import pytest
 
-from crewai_trading_strategy.constants import BTC_DATASET_START_DATE, BTC_DATASET_END_DATE
+from crewai_trading_strategy.constants import DEFAULT_DATASET_PATH
 from utils.date_utils import parse_yyyy_mm_dd
 from utils.historical_daily_prices_helper import HistoricalDailyPricesHelper
 from utils.strategy_backtester import StrategyBacktester
 
 
 @pytest.fixture()
-def btc_csv_path(tmp_path):
+def asset_csv_path(tmp_path):
     """
-    5 daily candles with BTC-style continuity:
-    Open[t] == Close[t-1]
+    5 daily candles with continuous pricing across consecutive dataset rows.
 
     And logical OHLC constraints:
     Low <= min(Open, Close) and High >= max(Open, Close)
@@ -32,19 +30,19 @@ def btc_csv_path(tmp_path):
         }
     ).set_index("Date")
 
-    path = tmp_path / "btc.csv"
+    path = tmp_path / "asset.csv"
     df.to_csv(path, index=True)
     return str(path)
 
 
-def make_helper_and_bt(csv_path: str):
+def make_helper_and_bt(csv_path: str, asset_symbol: str = "ASSET"):
     helper = HistoricalDailyPricesHelper(csv_path)
-    bt = StrategyBacktester(helper)
+    bt = StrategyBacktester(helper, asset_symbol=asset_symbol)
     return helper, bt
 
 
-def test_start_date_requires_warmup_prior_candle(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_start_date_requires_warmup_prior_candle(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
     code = "def run(df, holdings):\n    return []\n"
     res = bt.test_strategy("2024-01-01", "2024-01-01", code)
@@ -53,8 +51,8 @@ def test_start_date_requires_warmup_prior_candle(btc_csv_path):
     assert "requires at least 1 prior candle" in res
 
 
-def test_date_range_out_of_bounds(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_date_range_out_of_bounds(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
     code = "def run(df, holdings):\n    return []\n"
     res = bt.test_strategy("2023-12-01", "2024-01-03", code)
@@ -63,8 +61,8 @@ def test_date_range_out_of_bounds(btc_csv_path):
     assert "Date range validation error" in res
 
 
-def test_missing_run_function(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_missing_run_function(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
     code = "def not_run(df, holdings):\n    return []\n"
     res = bt.test_strategy("2024-01-02", "2024-01-03", code)
@@ -74,8 +72,8 @@ def test_missing_run_function(btc_csv_path):
     assert "run(df, holdings)" in res
 
 
-def test_strategy_execution_error_returns_stacktrace(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_strategy_execution_error_returns_stacktrace(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
     code = """\
 def run(df, holdings):
@@ -88,13 +86,12 @@ def run(df, holdings):
     assert "ZeroDivisionError" in res
 
 
-def test_order_overspend_error(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_order_overspend_error(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
-    # Execution day 2024-01-02 Open=100, buying 10000 BTC costs 1,000,000 USD -> should fail.
     code = """\
 def run(df, holdings):
-    return [{"action": "BUY", "asset": "BTC", "amount": 10000.0}]
+    return [{"action": "BUY", "asset": "ASSET", "amount": 10000.0}]
 """
     res = bt.test_strategy("2024-01-02", "2024-01-02", code)
 
@@ -102,8 +99,8 @@ def run(df, holdings):
     assert "Order error: Insufficient USD for BUY" in res
 
 
-def test_sell_nonexistent_holding_id(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_sell_nonexistent_holding_id(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
     code = """\
 def run(df, holdings):
@@ -115,18 +112,14 @@ def run(df, holdings):
     assert "Order error: SELL refers to non-existing holding_id" in res
 
 
-def test_stop_loss_triggers_same_day_after_buy(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_stop_loss_triggers_same_day_after_buy(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
-    # For execution day 2024-01-02, df includes up to 2024-01-01.
-    # Strategy buys based on last close (2024-01-01 Close=100).
-    # Execution price on 2024-01-02 Open=100 (same as last close).
-    # Day2 Low=95 triggers stop_loss=98 => sell at 98 => -2 USD on 1 BTC.
     code = """\
 def run(df, holdings):
     last = str(df["Date"].iloc[-1])[:10]
     if last == "2024-01-01":
-        return [{"action": "BUY", "asset": "BTC", "amount": 1.0, "stop_loss": 98.0}]
+        return [{"action": "BUY", "asset": "ASSET", "amount": 1.0, "stop_loss": 98.0}]
     return []
 """
     res = bt.test_strategy("2024-01-02", "2024-01-02", code)
@@ -136,27 +129,16 @@ def run(df, holdings):
     assert res.revenue_percent == pytest.approx((-2.0 / 10000.0) * 100.0, abs=1e-6)
 
 
-def test_multi_day_take_profit_and_stop_loss(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_multi_day_take_profit_and_stop_loss(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
-    # Multi-day strategy (uses "current price == last close" for sizing/logic):
-    #
-    # - On 2024-01-02: buy 1 BTC with take_profit=120
-    #   Bought at 2024-01-02 Open=100 (== 2024-01-01 Close=100).
-    #   TP triggers 2024-01-03 High=120 => sell at 120 => +20
-    #
-    # - On 2024-01-04: buy 1 BTC with stop_loss=108
-    #   Bought at 2024-01-04 Open=110 (== 2024-01-03 Close=110).
-    #   SL triggers 2024-01-04 Low=108 => sell at 108 => -2
-    #
-    # Net: +18 => 10018
     code = """\
 def run(df, holdings):
     last = str(df["Date"].iloc[-1])[:10]
     if last == "2024-01-01":
-        return [{"action": "BUY", "asset": "BTC", "amount": 1.0, "take_profit": 120.0}]
+        return [{"action": "BUY", "asset": "ASSET", "amount": 1.0, "take_profit": 120.0}]
     if last == "2024-01-03":
-        return [{"action": "BUY", "asset": "BTC", "amount": 1.0, "stop_loss": 108.0}]
+        return [{"action": "BUY", "asset": "ASSET", "amount": 1.0, "stop_loss": 108.0}]
     return []
 """
     res = bt.test_strategy("2024-01-02", "2024-01-05", code)
@@ -164,25 +146,20 @@ def run(df, holdings):
     assert not isinstance(res, str)
     assert res.total_portfolio_usd == pytest.approx(10018.0, abs=1e-6)
     assert res.revenue_percent == pytest.approx((18.0 / 10000.0) * 100.0, abs=1e-6)
-
-    # Both positions should be closed (TP then SL)
     assert sorted([h.asset for h in res.holdings]) == ["USD"]
 
 
-def test_success_buy_then_sell_last_day_open(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_success_buy_then_sell_last_day_open(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
-    # Buy on 2024-01-02 using last close (2024-01-01 Close=100).
-    # Sell on 2024-01-05 at Open=120 (== 2024-01-04 Close=120).
-    # PnL: +20
     code = """\
 def run(df, holdings):
     last = str(df["Date"].iloc[-1])[:10]
     if last == "2024-01-01":
-        return [{"action": "BUY", "asset": "BTC", "amount": 1.0}]
+        return [{"action": "BUY", "asset": "ASSET", "amount": 1.0}]
     if last == "2024-01-04":
         for h in holdings:
-            if h["asset"] == "BTC":
+            if h["asset"] == "ASSET":
                 return [{"action": "SELL", "holding_id": h["holding_id"], "amount": h["amount"]}]
     return []
 """
@@ -194,12 +171,12 @@ def run(df, holdings):
     assert sorted([h.asset for h in res.holdings]) == ["USD"]
 
 
-def test_helper_function_allowed(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_helper_function_allowed(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
     code = """\
 def get_order():
-    return [{"action": "BUY", "amount": 1.0, "asset": "BTC"}]
+    return [{"action": "BUY", "amount": 1.0, "asset": "ASSET"}]
 
 def run(df, holdings):
     return get_order()
@@ -208,12 +185,9 @@ def run(df, holdings):
     assert not isinstance(res, str)
 
 
-def test_can_buy_up_to_usd_using_last_close_price(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_can_buy_up_to_usd_using_last_close_price(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
-    # Strategy assumes "current BTC price == last day close".
-    # On 2024-01-02, last close is 2024-01-01 Close=100, so with 10000 USD:
-    # max buy amount is 10000 / 100 = 100 BTC (should succeed).
     code = """\
 def run(df, holdings):
     last = str(df["Date"].iloc[-1])[:10]
@@ -225,20 +199,17 @@ def run(df, holdings):
     for h in holdings:
         if h["asset"] == "USD":
             usd = float(h["amount"])
-    amount = usd / last_close  # exact max
-    return [{"action": "BUY", "asset": "BTC", "amount": amount}]
+    amount = usd / last_close
+    return [{"action": "BUY", "asset": "ASSET", "amount": amount}]
 """
     res = bt.test_strategy("2024-01-02", "2024-01-02", code)
 
     assert not isinstance(res, str)
-    # We only assert it runs (no error); valuation rules at end-of-day can vary by engine.
 
 
-def test_cannot_buy_more_than_usd_using_last_close_price(btc_csv_path):
-    _, bt = make_helper_and_bt(btc_csv_path)
+def test_cannot_buy_more_than_usd_using_last_close_price(asset_csv_path):
+    _, bt = make_helper_and_bt(asset_csv_path)
 
-    # Same assumption as above, but requests slightly more than max.
-    # On 2024-01-02 last close is 100; 100.01 BTC costs 10001 USD > 10000 -> fail.
     code = """\
 def run(df, holdings):
     last = str(df["Date"].iloc[-1])[:10]
@@ -252,7 +223,7 @@ def run(df, holdings):
             usd = float(h["amount"])
 
     max_amount = usd / last_close
-    return [{"action": "BUY", "asset": "BTC", "amount": max_amount + 0.01}]
+    return [{"action": "BUY", "asset": "ASSET", "amount": max_amount + 0.01}]
 """
     res = bt.test_strategy("2024-01-02", "2024-01-02", code)
 
@@ -260,15 +231,28 @@ def run(df, holdings):
     assert "Order error: Insufficient USD for BUY" in res
 
 
-def test_temp(btc_csv_path):
-    _, bt = make_helper_and_bt("data/BTC-USD_2014_2024.csv")
+def test_non_daily_calendar_with_market_gap_still_uses_previous_available_candle(tmp_path):
+    df = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-01-04", "2024-01-05", "2024-01-08"]),
+            "Open": [100, 101, 110],
+            "High": [101, 111, 115],
+            "Low": [99, 100, 109],
+            "Close": [100, 110, 112],
+            "Volume": [1, 1, 1],
+        }
+    ).set_index("Date")
+    path = tmp_path / "market_days.csv"
+    df.to_csv(path, index=True)
 
-    # read code from file
-    with open("output/trading_strategy_implementation.py", "r") as f:
-        code = f.read()
-    START_DATE = parse_yyyy_mm_dd(BTC_DATASET_START_DATE) + timedelta(days=1)
-    END_DATE = parse_yyyy_mm_dd(BTC_DATASET_END_DATE)
-    res = bt.test_strategy(START_DATE, END_DATE, code)
+    _, bt = make_helper_and_bt(str(path))
 
-    print(f"\n\n{res}\n\n")
+    code = """\
+def run(df, holdings):
+    return [{"action": "BUY", "asset": "ASSET", "amount": 1.0}] if str(df["Date"].iloc[-1])[:10] == "2024-01-05" else []
+"""
+    res = bt.test_strategy("2024-01-08", "2024-01-08", code)
+
     assert not isinstance(res, str)
+    assert sorted([h.asset for h in res.holdings]) == ["ASSET", "USD"]
+

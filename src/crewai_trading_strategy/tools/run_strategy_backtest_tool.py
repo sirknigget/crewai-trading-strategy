@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import  Type
-from pydantic import BaseModel, Field
+from typing import Type
 
 from crewai.tools import BaseTool
+from pydantic import BaseModel, Field
+
 from utils.strategy_backtester import StrategyBacktester
 
-# Backtest window constants
 START_DATE: str = "2021-01-01"
 END_DATE: str = "2021-01-30"
 
+
 class RunBacktestInput(BaseModel):
     """Input schema for running a strategy backtest."""
+
     trading_strategy_code: str = Field(
         ...,
         description=(
@@ -24,35 +26,33 @@ class RunBacktestInput(BaseModel):
 
 class RunStrategyBacktestTool(BaseTool):
     """
-    Run a BTC/USD daily backtest using StrategyBacktester.
-    - Returns a JSON string containing BacktestResult on success, or an error string.
-
-    class BacktestResult(BaseModel):
-        holdings: list[HoldingSnapshot]
-        total_portfolio_usd: float
-        revenue_percent: float
+    Run a daily backtest using StrategyBacktester.
+    Returns a JSON string containing BacktestResult on success, or an error string.
     """
 
-    name: str = "Run BTC Strategy Backtest"
-    description: str = (
-        "Runs the StrategyBacktester over a fixed start/end date window and returns "
-        "the backtest result (JSON) or an error message."
-    )
+    name: str = "Run Strategy Backtest"
+    description: str = "Run a strategy backtest."
     args_schema: Type[BaseModel] = RunBacktestInput
 
-    # Instance of the helper class (passed during initialization)
     backtester: StrategyBacktester
 
+    def model_post_init(self, __context) -> None:
+        self.description = (
+            "Runs the StrategyBacktester over a fixed start/end date window and returns "
+            "the backtest result (JSON) or an error message. "
+            f"The fixed backtest window is {START_DATE} to {END_DATE}. "
+            f"The loaded dataset range is {self.backtester.prices.dataset_start_date} to "
+            f"{self.backtester.prices.dataset_end_date}."
+        )
+
     def _run(self, trading_strategy_code: str) -> str:
-        result = self._backtester.test_strategy(
+        result = self.backtester.test_strategy(
             start_date=START_DATE,
             end_date=END_DATE,
             trading_strategy_code=trading_strategy_code,
         )
 
-        # test_strategy returns BacktestResult | str
         if isinstance(result, str):
             return result
 
-        # BacktestResult is a Pydantic model
         return result.model_dump_json(indent=2)
